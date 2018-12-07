@@ -21,14 +21,25 @@ import java.nio.channels.Selector;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Set;
 
+/**
+ * 优化后的选择器对象 实现JDK 选择器接口
+ */
 final class SelectedSelectionKeySetSelector extends Selector {
+    /**
+     * 存放 准备完的事件 在创建这个对象前 已经加入到 openJdk底层存放 selector的 容器中了 所以准备完的事件会被转存到这里
+     */
     private final SelectedSelectionKeySet selectionKeys;
+    /**
+     * 选择器代理对象 也就是 openJdk 的 selector对象 该优化对象也就是 将对这个操作返回的结果进行优化
+     */
     private final Selector delegate;
 
     SelectedSelectionKeySetSelector(Selector delegate, SelectedSelectionKeySet selectionKeys) {
         this.delegate = delegate;
         this.selectionKeys = selectionKeys;
     }
+
+    //普通功能全部委托给delegate 对象
 
     @Override
     public boolean isOpen() {
@@ -49,6 +60,8 @@ final class SelectedSelectionKeySetSelector extends Selector {
     public Set<SelectionKey> selectedKeys() {
         return delegate.selectedKeys();
     }
+
+    //每次选择之前自动清空之前保存的 selectionKey 对象 不然要手动删除
 
     @Override
     public int selectNow() throws IOException {

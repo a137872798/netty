@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadFactory;
 
 /**
  * {@link MultithreadEventLoopGroup} implementations which is used for NIO {@link Selector} based {@link Channel}s.
+ * 能够 给channel 注册 eventloop 的前提是 创建了 事件循环组
  */
 public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
@@ -46,6 +47,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
     /**
      * Create a new instance using the specified number of threads, {@link ThreadFactory} and the
      * {@link SelectorProvider} which is returned by {@link SelectorProvider#provider()}.
+     * 这里是创建 事件循环组
      */
     public NioEventLoopGroup(int nThreads) {
         this(nThreads, (Executor) null);
@@ -74,6 +76,7 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
 
     public NioEventLoopGroup(int nThreads, ThreadFactory threadFactory,
         final SelectorProvider selectorProvider, final SelectStrategyFactory selectStrategyFactory) {
+        //拒绝策略 默认就是抛出异常
         super(nThreads, threadFactory, selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject());
     }
 
@@ -82,6 +85,13 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         this(nThreads, executor, selectorProvider, DefaultSelectStrategyFactory.INSTANCE);
     }
 
+    /**
+     *
+     * @param nThreads 几条线程
+     * @param executor 线程池 默认是 null
+     * @param selectorProvider 选择器提供对象
+     * @param selectStrategyFactory 选择策略工厂
+     */
     public NioEventLoopGroup(int nThreads, Executor executor, final SelectorProvider selectorProvider,
                              final SelectStrategyFactory selectStrategyFactory) {
         super(nThreads, executor, selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject());
@@ -121,6 +131,17 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         }
     }
 
+    /**
+     * 创建 NioEventLoop对象
+     *
+     * args 对象对应 selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject()
+     * 生成了一组使用 特殊线程 以及拥有 selector 对象的 eventLoop对象 这样就是说一个 eventLoop维护一个选择器 对应多个channel
+     * 一般nio编程是一个 channel 对应一个选择器
+     * @param executor  如果一开始没有设置 就会使用 ThreadPerTaskExecutor
+     * @param args
+     * @return
+     * @throws Exception
+     */
     @Override
     protected EventLoop newChild(Executor executor, Object... args) throws Exception {
         return new NioEventLoop(this, executor, (SelectorProvider) args[0],

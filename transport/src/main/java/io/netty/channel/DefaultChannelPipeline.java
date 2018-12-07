@@ -42,6 +42,8 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 /**
  * The default {@link ChannelPipeline} implementation.  It is usually created
  * by a {@link Channel} implementation when the {@link Channel} is created.
+ *
+ * pipeline 对象 就是 关联一系列 handler 对象的 处理链
  */
 public class DefaultChannelPipeline implements ChannelPipeline {
 
@@ -89,10 +91,18 @@ public class DefaultChannelPipeline implements ChannelPipeline {
      */
     private boolean registered;
 
+    /**
+     * 通过一个channel 对象进行初始化
+     * @param channel
+     */
     protected DefaultChannelPipeline(Channel channel) {
+        //设置channel 对象
         this.channel = ObjectUtil.checkNotNull(channel, "channel");
+        //初始化2个固定的 promise对象
         succeededFuture = new SucceededChannelFuture(channel, null);
         voidPromise =  new VoidChannelPromise(channel, true);
+
+        //初始化head 和 tail 节点 传入自身引用保证 每个 节点 的上下文都能随时获取到 整条处理链
 
         tail = new TailContext(this);
         head = new HeadContext(this);

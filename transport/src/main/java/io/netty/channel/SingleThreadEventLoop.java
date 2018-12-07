@@ -52,10 +52,19 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
+    /**
+     * 初始化 事件循环对象
+     * @param parent
+     * @param executor
+     * @param addTaskWakesUp
+     * @param maxPendingTasks
+     * @param rejectedExecutionHandler
+     */
     protected SingleThreadEventLoop(EventLoopGroup parent, Executor executor,
                                     boolean addTaskWakesUp, int maxPendingTasks,
                                     RejectedExecutionHandler rejectedExecutionHandler) {
         super(parent, executor, addTaskWakesUp, maxPendingTasks, rejectedExecutionHandler);
+        //子类重写创建了 MQSC 队列
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
@@ -69,14 +78,21 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         return (EventLoop) super.next();
     }
 
+    /**
+     * 给channel 对象 设置 eventloop 返回的future 对象就是 bind 时用来判定该操作是否成功
+     * @param channel
+     * @return
+     */
     @Override
     public ChannelFuture register(Channel channel) {
+        //这里 已经通过 Group 的next 选择到合适的 eventloop 对象了所以 直接用该对象作为 promise的事件处理线程
         return register(new DefaultChannelPromise(channel, this));
     }
 
     @Override
     public ChannelFuture register(final ChannelPromise promise) {
         ObjectUtil.checkNotNull(promise, "promise");
+        //获取channel 上的 unsafe 对象并调用register方法
         promise.channel().unsafe().register(this, promise);
         return promise;
     }

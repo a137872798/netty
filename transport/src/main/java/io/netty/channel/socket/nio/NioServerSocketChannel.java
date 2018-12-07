@@ -41,15 +41,32 @@ import java.util.Map;
 /**
  * A {@link io.netty.channel.socket.ServerSocketChannel} implementation which uses
  * NIO selector based implementation to accept new connections.
+ *
+ * 服务端 channel 对应JDK 中的ServerSocketChannel 在newChannel 时 并没有直接进行 channel事件注册
+ * 服务端channel 父类是 MessageChannel
+ * 客户端channel 父类是 ByteChannel
+ *
  */
 public class NioServerSocketChannel extends AbstractNioMessageChannel
                              implements io.netty.channel.socket.ServerSocketChannel {
 
+    /**
+     * 存放了  channel 的元数据 是否已经连接 和 每次能读取的最大长度
+     */
     private static final ChannelMetadata METADATA = new ChannelMetadata(false, 16);
+
+    /**
+     * 获取selectprovider 对象 这个对象可以创建 选择器
+     */
     private static final SelectorProvider DEFAULT_SELECTOR_PROVIDER = SelectorProvider.provider();
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(NioServerSocketChannel.class);
 
+    /**
+     * 返回JDK ServerChannel
+     * @param provider
+     * @return
+     */
     private static ServerSocketChannel newSocket(SelectorProvider provider) {
         try {
             /**
@@ -68,7 +85,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     private final ServerSocketChannelConfig config;
 
     /**
-     * Create a new instance
+     * Create a new instance  当通过channelFactory 创建channel 时 调用的就是无参构造
      */
     public NioServerSocketChannel() {
         this(newSocket(DEFAULT_SELECTOR_PROVIDER));
@@ -85,7 +102,9 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance using the given {@link ServerSocketChannel}.
      */
     public NioServerSocketChannel(ServerSocketChannel channel) {
+        //这里注册的是 连接事件 这里只是初始化 还没有注册事件
         super(null, channel, SelectionKey.OP_ACCEPT);
+        //创建 config 对象
         config = new NioServerSocketChannelConfig(this, javaChannel().socket());
     }
 
@@ -192,6 +211,9 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * 该channel 对应的 config 对象  也就是给配置对象设置属性
+     */
     private final class NioServerSocketChannelConfig extends DefaultServerSocketChannelConfig {
         private NioServerSocketChannelConfig(NioServerSocketChannel channel, ServerSocket javaSocket) {
             super(channel, javaSocket);

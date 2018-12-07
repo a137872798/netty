@@ -52,6 +52,8 @@ import static io.netty.channel.internal.ChannelUtils.MAX_BYTES_PER_GATHERING_WRI
 
 /**
  * {@link io.netty.channel.socket.SocketChannel} which uses NIO selector based implementation.
+ *
+ * 客户端channel 对象 同样在创建时  还没有开始注册事件
  */
 public class NioSocketChannel extends AbstractNioByteChannel implements io.netty.channel.socket.SocketChannel {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(NioSocketChannel.class);
@@ -75,6 +77,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     /**
      * Create a new instance
+     * 通过channelFactory 创建channel 对象 默认走这里
      */
     public NioSocketChannel() {
         this(DEFAULT_SELECTOR_PROVIDER);
@@ -96,12 +99,14 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     /**
      * Create a new instance
-     *
+     * 最后走到这
      * @param parent    the {@link Channel} which created this instance or {@code null} if it was created by the user
      * @param socket    the {@link SocketChannel} which will be used
      */
     public NioSocketChannel(Channel parent, SocketChannel socket) {
+        //客户端channel 使用 read事件进行注册
         super(parent, socket);
+        //初始化配置信息
         config = new NioSocketChannelConfig(this, socket.socket());
     }
 

@@ -25,6 +25,9 @@ import io.netty.channel.EventLoop;
 
 import java.net.SocketAddress;
 
+/**
+ * 一个失败的 channel 对象 不能进行任何操作
+ */
 final class FailedChannel extends AbstractChannel {
     private static final ChannelMetadata METADATA = new ChannelMetadata(false);
     private final ChannelConfig config = new DefaultChannelConfig(this);
@@ -98,6 +101,9 @@ final class FailedChannel extends AbstractChannel {
         return METADATA;
     }
 
+    /**
+     * 该channel 一旦调用connect 直接 设置 失败
+     */
     private final class FailedChannelUnsafe extends AbstractUnsafe {
         @Override
         public void connect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {

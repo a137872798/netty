@@ -22,11 +22,20 @@ import io.netty.util.internal.UnstableApi;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 一个 特殊的 future 对象
+ */
 @UnstableApi
 public final class VoidChannelPromise extends AbstractFuture<Void> implements ChannelPromise {
 
+    /**
+     * 这个 future 关联的 channel 对象每个 promise 都会关联一个 channel 对象
+     */
     private final Channel channel;
     // Will be null if we should not propagate exceptions through the pipeline on failure case.
+    /**
+     * 只有设定了 允许触发异常 才会设置的 listener 对象
+     */
     private final ChannelFutureListener fireExceptionListener;
 
     /**
@@ -39,6 +48,7 @@ public final class VoidChannelPromise extends AbstractFuture<Void> implements Ch
             throw new NullPointerException("channel");
         }
         this.channel = channel;
+        //如果 允许触发异常 设置 监听器对象
         if (fireException) {
             fireExceptionListener = new ChannelFutureListener() {
                 @Override
@@ -54,6 +64,11 @@ public final class VoidChannelPromise extends AbstractFuture<Void> implements Ch
         }
     }
 
+    /**
+     * 无法为该对象 设置 监听器
+     * @param listener
+     * @return
+     */
     @Override
     public VoidChannelPromise addListener(GenericFutureListener<? extends Future<? super Void>> listener) {
         fail();
@@ -78,6 +93,11 @@ public final class VoidChannelPromise extends AbstractFuture<Void> implements Ch
         return this;
     }
 
+    /**
+     * 无法 阻塞当前线程 直接返回结果
+     * @return
+     * @throws InterruptedException
+     */
     @Override
     public VoidChannelPromise await() throws InterruptedException {
         if (Thread.interrupted()) {
@@ -162,6 +182,12 @@ public final class VoidChannelPromise extends AbstractFuture<Void> implements Ch
         fail();
         return this;
     }
+
+    /**
+     * 在允许触发 异常事件时 才会将 异常传入 pipeline 中
+     * @param cause
+     * @return
+     */
     @Override
     public VoidChannelPromise setFailure(Throwable cause) {
         fireException0(cause);
@@ -227,6 +253,10 @@ public final class VoidChannelPromise extends AbstractFuture<Void> implements Ch
         return true;
     }
 
+    /**
+     * 当异常触发时 将异常事件传入到 pipeline 中
+     * @param cause
+     */
     private void fireException0(Throwable cause) {
         // Only fire the exception if the channel is open and registered
         // if not the pipeline is not setup and so it would hit the tail

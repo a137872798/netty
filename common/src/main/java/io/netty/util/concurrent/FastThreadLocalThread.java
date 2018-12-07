@@ -20,11 +20,16 @@ import io.netty.util.internal.UnstableApi;
 
 /**
  * A special {@link Thread} that provides fast access to {@link FastThreadLocal} variables.
+ *
+ * 为线程增加一个存放线程变量的容器
  */
 public class FastThreadLocalThread extends Thread {
     // This will be set to true if we have a chance to wrap the Runnable.
     private final boolean cleanupFastThreadLocals;
 
+    /**
+     * 存放线程变量的容器
+     */
     private InternalThreadLocalMap threadLocalMap;
 
     public FastThreadLocalThread() {
@@ -33,6 +38,7 @@ public class FastThreadLocalThread extends Thread {
 
     public FastThreadLocalThread(Runnable target) {
         super(FastThreadLocalRunnable.wrap(target));
+        //初始化的同时就修改成true
         cleanupFastThreadLocals = true;
     }
 

@@ -47,6 +47,7 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
 
     /**
      * @see MultithreadEventExecutorGroup#MultithreadEventExecutorGroup(int, Executor, Object...)
+     * 创建事件循环组对象  args 对象对应 selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject()
      */
     protected MultithreadEventLoopGroup(int nThreads, Executor executor, Object... args) {
         super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, executor, args);

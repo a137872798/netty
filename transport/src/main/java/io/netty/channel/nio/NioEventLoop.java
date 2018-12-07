@@ -130,6 +130,16 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     private int cancelledKeys;
     private boolean needsToSelectAgain;
 
+    /**
+     * 通过 NioEventLoopGroup 创建该对象 也就是设置了一堆属性 最重要的是生成了一个 selector 对象 该对象还是优化过的
+     *
+     * channel 中 只是创建通过provider创建了 channel 并没有创建selector
+     * @param parent NioEventLoopGroup 对象
+     * @param executor 默认为null
+     * @param selectorProvider SelectorProvider.provider()
+     * @param strategy DefaultSelectStrategyFactory.INSTANCE
+     * @param rejectedExecutionHandler RejectedExecutionHandlers.reject()
+     */
     NioEventLoop(NioEventLoopGroup parent, Executor executor, SelectorProvider selectorProvider,
                  SelectStrategy strategy, RejectedExecutionHandler rejectedExecutionHandler) {
         super(parent, executor, false, DEFAULT_MAX_PENDING_TASKS, rejectedExecutionHandler);
@@ -139,17 +149,28 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         if (strategy == null) {
             throw new NullPointerException("selectStrategy");
         }
+        //设置 选择器提供者
         provider = selectorProvider;
+        //使用provider 创建selector对象
         final SelectorTuple selectorTuple = openSelector();
+        //获取 优化 和未优化版本
         selector = selectorTuple.selector;
         unwrappedSelector = selectorTuple.unwrappedSelector;
+        //这个选择策略是做什么的
         selectStrategy = strategy;
     }
 
+    /**
+     * 存放 优化 的 selector 和未优化的 selector
+     */
     private static final class SelectorTuple {
         final Selector unwrappedSelector;
         final Selector selector;
 
+        /**
+         * 默认情况下 2个 都使用 未优化的selector
+         * @param unwrappedSelector
+         */
         SelectorTuple(Selector unwrappedSelector) {
             this.unwrappedSelector = unwrappedSelector;
             this.selector = unwrappedSelector;
@@ -161,18 +182,26 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 选择器对象包装类
+     * @return
+     */
     private SelectorTuple openSelector() {
         final Selector unwrappedSelector;
         try {
+            //通过 提供者 获取 选择器对象
             unwrappedSelector = provider.openSelector();
         } catch (IOException e) {
             throw new ChannelException("failed to open a new selector", e);
         }
 
+        //拒绝 什么东西 应该是 拒绝对select 做优化
         if (DISABLE_KEYSET_OPTIMIZATION) {
+            //直接返回包装对象
             return new SelectorTuple(unwrappedSelector);
         }
 
+        //获取权限 现在还不懂需要在什么时候使用
         Object maybeSelectorImplClass = AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @Override
             public Object run() {
@@ -187,6 +216,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
         });
 
+        //获取 openJdk 的 选择器实现对象
         if (!(maybeSelectorImplClass instanceof Class) ||
             // ensure the current selector implementation is what we can instrument.
             !((Class<?>) maybeSelectorImplClass).isAssignableFrom(unwrappedSelector.getClass())) {
@@ -198,15 +228,19 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         final Class<?> selectorImplClass = (Class<?>) maybeSelectorImplClass;
+        //可读取事件的 优化对象
         final SelectedSelectionKeySet selectedKeySet = new SelectedSelectionKeySet();
 
         Object maybeException = AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @Override
             public Object run() {
                 try {
+                    //这个对象 key 维护了 选择器 value 维护了这个选择器准备好的事件
                     Field selectedKeysField = selectorImplClass.getDeclaredField("selectedKeys");
+                    //这是 视图对象 不允许操作
                     Field publicSelectedKeysField = selectorImplClass.getDeclaredField("publicSelectedKeys");
 
+                    //如果是 jdk9 这段先不看
                     if (PlatformDependent.javaVersion() >= 9 && PlatformDependent.hasUnsafe()) {
                         // Let us try to use sun.misc.Unsafe to replace the SelectionKeySet.
                         // This allows us to also do this in Java9+ without any extra flags.
@@ -224,6 +258,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         // We could not retrieve the offset, lets try reflection as last-resort.
                     }
 
+                    //尝试获取访问权限
                     Throwable cause = ReflectionUtil.trySetAccessible(selectedKeysField, true);
                     if (cause != null) {
                         return cause;
@@ -233,6 +268,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         return cause;
                     }
 
+                    //为该 字段 设置 key value 也就是针对这个选择器操作后 结果会设置到这个set中
                     selectedKeysField.set(unwrappedSelector, selectedKeySet);
                     publicSelectedKeysField.set(unwrappedSelector, selectedKeySet);
                     return null;
@@ -244,6 +280,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
         });
 
+        //如果出现异常 打印日志 返回原始对象
         if (maybeException instanceof Exception) {
             selectedKeys = null;
             Exception e = (Exception) maybeException;
@@ -252,6 +289,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
         selectedKeys = selectedKeySet;
         logger.trace("instrumented a special java.util.Set into: {}", unwrappedSelector);
+        //开始优化
+        //优化点2个
+        //1.以数组形式 替代原来的 set 存放 selectionKey (不知道原来的 set 是什么结构 如果是hashSet确实会慢一些 但会慢到必须要进行优化的程度吗?)
+        //2.每次 重新选择前 都会清空之前保存的 selectionKey
         return new SelectorTuple(unwrappedSelector,
                                  new SelectedSelectionKeySetSelector(unwrappedSelector, selectedKeySet));
     }
@@ -418,6 +459,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 就是在 开始事件循环后 通过专有线程转发调用到这里执行任务
+     * 当 将eventLoop 注册到channel 上就是在 任务队列中加入任务 执行register0 就是将 channel注册到eventLoop 的select上
+     */
     @Override
     protected void run() {
         for (;;) {
@@ -532,6 +577,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 当eventLoop 关闭的时候 关闭选择器
+     */
     @Override
     protected void cleanup() {
         try {

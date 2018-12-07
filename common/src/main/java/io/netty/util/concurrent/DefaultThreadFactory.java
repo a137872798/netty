@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A {@link ThreadFactory} implementation with a simple naming rule.
+ * Netty 默认的 线程工厂 ThreadPerTaskExecutor 就会使用这个线程工厂 生成的线程对象优化过ThreadLocal 能够保存线程变量 在多个channel中共享
  */
 public class DefaultThreadFactory implements ThreadFactory {
 
@@ -120,6 +121,12 @@ public class DefaultThreadFactory implements ThreadFactory {
         return t;
     }
 
+    /**
+     * 生成 优化保存线程本地变量功能 的线程 (类似于ThreadLocal)
+     * @param r
+     * @param name
+     * @return
+     */
     protected Thread newThread(Runnable r, String name) {
         return new FastThreadLocalThread(threadGroup, r, name);
     }

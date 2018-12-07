@@ -67,6 +67,10 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
         return selfCollection.iterator();
     }
 
+    /**
+     * 这里 重写了 优雅关闭 传入指定参数 又回到下层的 SingleThreadEventExecutor 执行
+     * @return
+     */
     @Override
     public Future<?> shutdownGracefully() {
         return shutdownGracefully(DEFAULT_SHUTDOWN_QUIET_PERIOD, DEFAULT_SHUTDOWN_TIMEOUT, TimeUnit.SECONDS);

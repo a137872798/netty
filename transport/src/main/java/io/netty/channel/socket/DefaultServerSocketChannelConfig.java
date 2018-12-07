@@ -43,6 +43,7 @@ public class DefaultServerSocketChannelConfig extends DefaultChannelConfig
 
     /**
      * Creates a new instance.
+     * 创建 配置对象 通过 socket 和 channel对象 也就是给配置对象设置属性
      */
     public DefaultServerSocketChannelConfig(ServerSocketChannel channel, ServerSocket javaSocket) {
         super(channel);

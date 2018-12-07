@@ -42,6 +42,10 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
         super(parent, ch, readInterestOp);
     }
 
+    /**
+     * 重写父类 创建unsafe 对象 针对服务器 channel 使用特殊的 MessageUnsafe
+     * @return
+     */
     @Override
     protected AbstractNioUnsafe newUnsafe() {
         return new NioMessageUnsafe();
@@ -55,6 +59,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
         super.doBeginRead();
     }
 
+    /**
+     * 这个对象本身没有 regist方法 当 给 channel 设置 eventloop 时 就是使用regist方法
+     */
     private final class NioMessageUnsafe extends AbstractNioUnsafe {
 
         private final List<Object> readBuf = new ArrayList<Object>();

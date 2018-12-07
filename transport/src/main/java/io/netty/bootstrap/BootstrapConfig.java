@@ -22,6 +22,7 @@ import java.net.SocketAddress;
 
 /**
  * Exposes the configuration of a {@link Bootstrap}.
+ * client 端的 config 对象 指定了 使用的 引导程序 是 客户端 引导程序
  */
 public final class BootstrapConfig extends AbstractBootstrapConfig<Bootstrap, Channel> {
 
@@ -31,6 +32,7 @@ public final class BootstrapConfig extends AbstractBootstrapConfig<Bootstrap, Ch
 
     /**
      * Returns the configured remote address or {@code null} if non is configured yet.
+     * 获取远程地址
      */
     public SocketAddress remoteAddress() {
         return bootstrap.remoteAddress();

@@ -45,6 +45,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Abstract base class for {@link Channel} implementations which use a Selector based approach.
+ *
+ *
  */
 public abstract class AbstractNioChannel extends AbstractChannel {
 
@@ -54,10 +56,25 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     private static final ClosedChannelException DO_CLOSE_CLOSED_CHANNEL_EXCEPTION = ThrowableUtil.unknownStackTrace(
             new ClosedChannelException(), AbstractNioChannel.class, "doClose()");
 
+    /**
+     * JDKchannel对象
+     */
     private final SelectableChannel ch;
+    /**
+     * 注册事件
+     */
     protected final int readInterestOp;
+    /**
+     * 返回的 准备事件
+     */
     volatile SelectionKey selectionKey;
+    /**
+     * 是否正在选择
+     */
     boolean readPending;
+    /**
+     * 清理注册事件的 任务
+     */
     private final Runnable clearReadPendingRunnable = new Runnable() {
         @Override
         public void run() {
@@ -68,9 +85,16 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     /**
      * The future of the current connection attempt.  If not null, subsequent
      * connection attempts will fail.
+     * 连接结果对象
      */
     private ChannelPromise connectPromise;
+    /**
+     * 定时任务
+     */
     private ScheduledFuture<?> connectTimeoutFuture;
+    /**
+     * 客户端地址
+     */
     private SocketAddress requestedRemoteAddress;
 
     /**
@@ -81,10 +105,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
+        //默认 parent为null
         super(parent);
+        //从下层传来的 JDK ServerSocketChannel or SocketChannel
         this.ch = ch;
+        //设置感兴趣的 事件 如果是 ServiceNioChannel 是 连接事件  客户端应该是 读取事件
         this.readInterestOp = readInterestOp;
         try {
+            //设置 读写都不阻塞 还不太明白 底层开启额外线程写入???
             ch.configureBlocking(false);
         } catch (IOException e) {
             try {
@@ -188,6 +216,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
     }
 
+    /**
+     * 清理之前 注册的 事件
+     */
     private void clearReadPending0() {
         readPending = false;
         ((AbstractNioUnsafe) unsafe()).removeReadOp();

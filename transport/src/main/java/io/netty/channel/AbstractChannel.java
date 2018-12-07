@@ -39,6 +39,8 @@ import java.util.concurrent.RejectedExecutionException;
 
 /**
  * A skeletal {@link Channel} implementation.
+ *
+ * 通道对象  attribute 代表了 channel能设置属性的特性
  */
 public abstract class AbstractChannel extends DefaultAttributeMap implements Channel {
 
@@ -55,21 +57,58 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     private static final NotYetConnectedException FLUSH0_NOT_YET_CONNECTED_EXCEPTION = ThrowableUtil.unknownStackTrace(
             new NotYetConnectedException(), AbstractUnsafe.class, "flush0()");
 
+    /**
+     * channel 存在一个 父对象
+     */
     private final Channel parent;
+    /**
+     * 该channel 的唯一id
+     */
     private final ChannelId id;
+    /**
+     * unsafe 对象 一切connect bind 等操作都是委托给该对象实现的
+     */
     private final Unsafe unsafe;
+    /**
+     * 该channel 所属的 pipeline 对象 组合了一个handler 链
+     */
     private final DefaultChannelPipeline pipeline;
+    /**
+     * 该对象无法支持监听器 当出现异常时 根据 是否允许触发异常 调用 pipeline 的 异常事件 否则不做处理 且结果始终是 失败
+     */
     private final VoidChannelPromise unsafeVoidPromise = new VoidChannelPromise(this, false);
+
+    /**
+     * 已经关闭的 promise 对象 无法进行操作 注意 promise 对象 始终会关联到一个 channel 代表这个对象是针对哪个连接的
+     */
     private final CloseFuture closeFuture = new CloseFuture(this);
+
+    //地址对象
 
     private volatile SocketAddress localAddress;
     private volatile SocketAddress remoteAddress;
+
+    /**
+     * 该channel 绑定的 事件循环对象
+     */
     private volatile EventLoop eventLoop;
+    /**
+     * 该channel 是否已经注册完成
+     */
     private volatile boolean registered;
+    /**
+     * 是否开始关闭
+     */
     private boolean closeInitiated;
 
     /** Cache for the string representation of this channel */
+    /**
+     * 是否 缓存 该channel 的 String表现形式???
+     */
     private boolean strValActive;
+    /**
+     * 该channel 的 String 表现形式
+     */
     private String strVal;
 
     /**
@@ -80,8 +119,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
+        //为该channel 创建id
         id = newId();
+
+        //这2个对象 就是 channel 的核心了 unsafe 管理write connect 等一系列操作 pipeline 则是执行通过事件触发的处理器逻辑
+
+        //创建unsafe 对象
         unsafe = newUnsafe();
+        //创建 pipeline 对象
         pipeline = newChannelPipeline();
     }
 
@@ -106,6 +151,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     /**
      * Returns a new {@link DefaultChannelId} instance. Subclasses may override this method to assign custom
      * {@link ChannelId}s to {@link Channel}s that use the {@link AbstractChannel#AbstractChannel(Channel)} constructor.
+     * 返回一个 ChannelId 实例 作为 该channel 的唯一id 这个对象包含了 machineId processId 等一系列能唯一定位channel的参数
      */
     protected ChannelId newId() {
         return DefaultChannelId.newInstance();
@@ -113,11 +159,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     /**
      * Returns a new {@link DefaultChannelPipeline} instance.
+     * 创建一个 默认的 pipeline 对象 传入了本channel对象 这里就是做了一些初始化工作包括生成 head tail 上下文对象
      */
     protected DefaultChannelPipeline newChannelPipeline() {
         return new DefaultChannelPipeline(this);
     }
 
+    /**
+     * 是否可写 是通过 委托到unsafe 对象实现的
+     * @return
+     */
     @Override
     public boolean isWritable() {
         ChannelOutboundBuffer buf = unsafe.outboundBuffer();
@@ -150,11 +201,19 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         return pipeline;
     }
 
+    /**
+     * 获取 byte 分配器的 逻辑被转移到 config 对象上  这个config 由子类来实现根据不同channel 类型返回不同channelConfig
+     * @return
+     */
     @Override
     public ByteBufAllocator alloc() {
         return config().getAllocator();
     }
 
+    /**
+     * 获取该channel 绑定的 事件循环对象
+     * @return
+     */
     @Override
     public EventLoop eventLoop() {
         EventLoop eventLoop = this.eventLoop;
@@ -216,6 +275,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     public boolean isRegistered() {
         return registered;
     }
+
+    //绑定和 连接是用 pipeline 实现的 ???不是 unsafe吗
 
     @Override
     public ChannelFuture bind(SocketAddress localAddress) {
@@ -341,6 +402,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     /**
      * Create a new {@link AbstractUnsafe} instance which will be used for the life-time of the {@link Channel}
+     * 创建 unsafe 根据具体的 channel 实现来决定 一般默认是 NioChannel
+     *
+     * 这里的 unsafe 也有2个 一个是 byteunsafe  一个是 messageunsafe
      */
     protected abstract AbstractUnsafe newUnsafe();
 
@@ -423,11 +487,22 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     /**
      * {@link Unsafe} implementation which sub-classes must extend and use.
+     *
+     * unsafe  的默认实现
      */
     protected abstract class AbstractUnsafe implements Unsafe {
 
+        /**
+         * 获取一个 输出 buf对象
+         */
         private volatile ChannelOutboundBuffer outboundBuffer = new ChannelOutboundBuffer(AbstractChannel.this);
+        /**
+         * 可回收 内存分配器的handle 对象
+         */
         private RecvByteBufAllocator.Handle recvHandle;
+        /**
+         * 是否刷盘
+         */
         private boolean inFlush0;
         /** true if the channel has never been registered, false otherwise */
         private boolean neverRegistered = true;
@@ -459,27 +534,39 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             return remoteAddress0();
         }
 
+        /**
+         * 为channel 注册 事件执行线程 就是走这里
+         * 这时传入的 eventLoop 还没有开启select 也没有开启线程(不一定 可能之前绑过别的channel了)
+         * @param eventLoop
+         * @param promise 这个是用来做异步的 里面包含的线程对象就是eventLoop 这样保证注册使用的是 非IO线程
+         */
         @Override
         public final void register(EventLoop eventLoop, final ChannelPromise promise) {
             if (eventLoop == null) {
                 throw new NullPointerException("eventLoop");
             }
+            //如果channel 已经注册了 就不能再注册了 bind 会自动注册
             if (isRegistered()) {
                 promise.setFailure(new IllegalStateException("registered to an event loop already"));
                 return;
             }
+            //判断 channel 和 eventloop 的类型是不是对应的
             if (!isCompatible(eventLoop)) {
                 promise.setFailure(
                         new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName()));
                 return;
             }
 
+            //这里给 channel 设置 了 eventLoop属性
             AbstractChannel.this.eventLoop = eventLoop;
 
+            //一般绑定动作都是在 IO线程执行的 所以一般都是使用eventLoop 专有的线程执行任务
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
                 try {
+                    //使用专有线程执行任务 同时也代表这里是 异步的起点 用户已经可以操作 promise 了
+                    //这里的 execute 应该一开始是要创建独有线程的 然后创建成功只要一直使用那个线程的引用就行了 而不用反复创建
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -491,16 +578,22 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                             "Force-closing a channel whose registration task was not accepted by an event loop: {}",
                             AbstractChannel.this, t);
                     closeForcibly();
+                    //这一步应该是为了 触发监听器 在什么时机 设置???
                     closeFuture.setClosed();
                     safeSetFailure(promise, t);
                 }
             }
         }
 
+        /**
+         * 注册的实际逻辑 这里应该是 将该JDK channel 绑定到选择器上
+         * @param promise
+         */
         private void register0(ChannelPromise promise) {
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
                 // call was outside of the eventLoop
+                //这里必须保证promise 不能被打断
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
@@ -986,6 +1079,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
         /**
          * Marks the specified {@code promise} as failure.  If the {@code promise} is done already, log a message.
+         * 如果是 特殊的promise 设置结果会抛出异常 这里变成打印日志的情况 一般是不会出现问题的 因为这个promise 是 channel eventLoop传进来的
          */
         protected final void safeSetFailure(ChannelPromise promise, Throwable cause) {
             if (!(promise instanceof VoidChannelPromise) && !promise.tryFailure(cause)) {
@@ -1122,6 +1216,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         return msg;
     }
 
+    /**
+     * 一个已经关闭的promise 对象 无法调用相关方法
+     */
     static final class CloseFuture extends DefaultChannelPromise {
 
         CloseFuture(AbstractChannel ch) {

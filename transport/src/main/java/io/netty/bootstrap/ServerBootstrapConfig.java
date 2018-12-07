@@ -26,6 +26,8 @@ import java.util.Map;
 
 /**
  * Exposes the configuration of a {@link ServerBootstrapConfig}.
+ *
+ * 服务端引导程序 配置
  */
 public final class ServerBootstrapConfig extends AbstractBootstrapConfig<ServerBootstrap, ServerChannel> {
 
@@ -36,6 +38,8 @@ public final class ServerBootstrapConfig extends AbstractBootstrapConfig<ServerB
     /**
      * Returns the configured {@link EventLoopGroup} which will be used for the child channels or {@code null}
      * if non is configured yet.
+     *
+     * 获取 子事件循环组
      */
     @SuppressWarnings("deprecation")
     public EventLoopGroup childGroup() {
@@ -45,10 +49,14 @@ public final class ServerBootstrapConfig extends AbstractBootstrapConfig<ServerB
     /**
      * Returns the configured {@link ChannelHandler} be used for the child channels or {@code null}
      * if non is configured yet.
+     *
+     * 子handler 对象
      */
     public ChannelHandler childHandler() {
         return bootstrap.childHandler();
     }
+
+    //子配置
 
     /**
      * Returns a copy of the configured options which will be used for the child channels.

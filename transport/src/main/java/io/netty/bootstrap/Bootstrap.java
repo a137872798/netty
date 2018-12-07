@@ -45,6 +45,8 @@ import java.util.Map.Entry;
  *
  * <p>The {@link #bind()} methods are useful in combination with connectionless transports such as datagram (UDP).
  * For regular TCP connections, please use the provided {@link #connect()} methods.</p>
+ *
+ * 客户端的 引导程序对象
  */
 public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
@@ -52,6 +54,9 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
 
     private static final AddressResolverGroup<?> DEFAULT_RESOLVER = DefaultAddressResolverGroup.INSTANCE;
 
+    /**
+     * 客户端引导程序的 配置 里面如果含有handler 在channel 初始化时 就会设置到pipeline 中
+     */
     private final BootstrapConfig config = new BootstrapConfig(this);
 
     @SuppressWarnings("unchecked")
@@ -258,17 +263,28 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         });
     }
 
+    /**
+     * 当新的 channel 生成时 进行 初始化操作
+     * @param channel
+     * @throws Exception
+     */
     @Override
     @SuppressWarnings("unchecked")
     void init(Channel channel) throws Exception {
+        //获取channel 关联的 pipeline 对象 当channel 被初始化时 就会调用 newPipeline 创建该对象
         ChannelPipeline p = channel.pipeline();
+        //默认在初始化时 就为pipeline 设置一个 handler 这个handler 其实就是从bootstrap 自身取出来的  config 内部就是委托给bootstrap
+        //一般在这里设置的就是 ChannelInitializer
         p.addLast(config.handler());
 
+        //获取 设置在 bootstrap 的 配置信息
         final Map<ChannelOption<?>, Object> options = options0();
         synchronized (options) {
+            //转移到 channel 上 也就是借由该引导程序创建的每个channel 都会具备 相应的 配置信息
             setChannelOptions(channel, options, logger);
         }
 
+        //获取 attr 并转移到channel 上
         final Map<AttributeKey<?>, Object> attrs = attrs0();
         synchronized (attrs) {
             for (Entry<AttributeKey<?>, Object> e: attrs.entrySet()) {

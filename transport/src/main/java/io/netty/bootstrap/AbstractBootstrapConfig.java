@@ -28,9 +28,15 @@ import java.util.Map;
 
 /**
  * Exposes the configuration of an {@link AbstractBootstrap}.
+ *
+ * 引导程序的 配置类  B 代表 引导程序 类别(client or server)  C代表 channel 种类(NIOChannel)
+ * 这个对象 设置了一堆 能够 获取 bootstrap 的成员的 方法
  */
 public abstract class AbstractBootstrapConfig<B extends AbstractBootstrap<B, C>, C extends Channel> {
 
+    /**
+     * 包含的引导程序对象
+     */
     protected final B bootstrap;
 
     protected AbstractBootstrapConfig(B bootstrap) {
@@ -39,6 +45,8 @@ public abstract class AbstractBootstrapConfig<B extends AbstractBootstrap<B, C>,
 
     /**
      * Returns the configured local address or {@code null} if non is configured yet.
+     *
+     * 获取 引导程序关联的地址
      */
     public final SocketAddress localAddress() {
         return bootstrap.localAddress();
@@ -46,6 +54,8 @@ public abstract class AbstractBootstrapConfig<B extends AbstractBootstrap<B, C>,
 
     /**
      * Returns the configured {@link ChannelFactory} or {@code null} if non is configured yet.
+     *
+     * 获取channel 工厂
      */
     @SuppressWarnings("deprecation")
     public final ChannelFactory<? extends C> channelFactory() {

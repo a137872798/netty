@@ -18,7 +18,11 @@ package io.netty.util.concurrent;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
+/**
+ * NioEventLoop对象的 专有线程池对象
+ */
 public final class ThreadPerTaskExecutor implements Executor {
+    //默认生成FastThreadLocalThread
     private final ThreadFactory threadFactory;
 
     public ThreadPerTaskExecutor(ThreadFactory threadFactory) {
@@ -28,6 +32,7 @@ public final class ThreadPerTaskExecutor implements Executor {
         this.threadFactory = threadFactory;
     }
 
+    //将任务转发到 该线程 执行
     @Override
     public void execute(Runnable command) {
         threadFactory.newThread(command).start();
