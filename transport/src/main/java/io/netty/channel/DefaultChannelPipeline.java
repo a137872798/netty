@@ -687,9 +687,14 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    /**
+     * 当 channel 被注册到select 时
+     */
     final void invokeHandlerAddedIfNeeded() {
+        //这里是委托到独占线程执行的 所以必然是true
         assert channel.eventLoop().inEventLoop();
         if (firstRegistration) {
+            //代表完成注册
             firstRegistration = false;
             // We are now registered to the EventLoop. It's time to call the callbacks for the ChannelHandlers,
             // that were added before the registration was done.
@@ -1150,9 +1155,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    /**
+     * 通知 handler 已经添加了 handler
+     */
     private void callHandlerAddedForAllHandlers() {
         final PendingHandlerCallback pendingHandlerCallbackHead;
         synchronized (this) {
+            //设置 注册标识
             assert !registered;
 
             // This Channel itself was registered.
@@ -1166,6 +1175,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         // This must happen outside of the synchronized(...) block as otherwise handlerAdded(...) may be called while
         // holding the lock and so produce a deadlock if handlerAdded(...) will try to add another handler from outside
         // the EventLoop.
+        //这里应该还没有初始化  否则会直接通知 整个链触发处理器
         PendingHandlerCallback task = pendingHandlerCallbackHead;
         while (task != null) {
             task.execute();
@@ -1468,6 +1478,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     }
 
+    /**
+     * 等待触发 handler 的回调函数
+     */
     private abstract static class PendingHandlerCallback implements Runnable {
         final AbstractChannelHandlerContext ctx;
         PendingHandlerCallback next;

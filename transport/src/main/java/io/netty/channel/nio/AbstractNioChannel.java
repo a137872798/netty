@@ -409,6 +409,10 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         return loop instanceof NioEventLoop;
     }
 
+    /**
+     * 注册的 实际逻辑 也就是将 channel 注册到 eventloop 的 选择器上
+     * @throws Exception
+     */
     @Override
     protected void doRegister() throws Exception {
         boolean selected = false;
@@ -420,6 +424,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 if (!selected) {
                     // Force the Selector to select now as the "canceled" SelectionKey may still be
                     // cached and not removed because no Select.select(..) operation was called yet.
+                    //这里会立即清空之前获取的 准备事件 可能在 register时 已经有准备好的事件会出bug  还不太懂
                     eventLoop().selectNow();
                     selected = true;
                 } else {

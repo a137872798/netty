@@ -593,17 +593,21 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
                 // call was outside of the eventLoop
-                //这里必须保证promise 不能被打断
+                //这里必须保证promise 不能被打断 也就是设置一个 标识  JDKChannel 必须处于打开状态
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
+                //设置 已注册标识 方便直接拒绝之后的注册行为
                 boolean firstRegistration = neverRegistered;
+                //注册的 实际逻辑也就是 将 channel 注册到 select上
                 doRegister();
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
+                // 注册完成后 尝试触发 pipeline pendingHandlerCallbackHead 对象还没有初始化 就不会触发handler
+                // 一般就不会触发
                 pipeline.invokeHandlerAddedIfNeeded();
 
                 safeSetSuccess(promise);
@@ -1059,11 +1063,19 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             return unsafeVoidPromise;
         }
 
+        /**
+         * 判断当前是否已开启
+         * @param promise
+         * @return
+         */
         protected final boolean ensureOpen(ChannelPromise promise) {
+            //JDKchannel 是否处于开启状态
             if (isOpen()) {
                 return true;
             }
 
+            //因为channel 属于关闭状态 设置失败结果
+            //如果出现异常变成打印日志 因为如果 promise 是 VoidPromise 是不能设置结果的
             safeSetFailure(promise, ENSURE_OPEN_CLOSED_CHANNEL_EXCEPTION);
             return false;
         }

@@ -142,6 +142,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             return true;
         }
         Object result = this.result;
+        //!isDone0 代表已经被设置成 不可中断  或者异常类型不是cancel异常
         return !isDone0(result) || !isCancelled0(result);
     }
 
