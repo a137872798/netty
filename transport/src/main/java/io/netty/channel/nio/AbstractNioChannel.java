@@ -69,7 +69,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      */
     volatile SelectionKey selectionKey;
     /**
-     * 是否正在选择
+     * 是否正在读取
      */
     boolean readPending;
     /**
@@ -109,7 +109,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         super(parent);
         //从下层传来的 JDK ServerSocketChannel or SocketChannel
         this.ch = ch;
-        //设置感兴趣的 事件 如果是 ServiceNioChannel 是 连接事件  客户端应该是 读取事件
+        //初始化感兴趣的 事件 如果是 ServiceNioChannel 是 连接事件  客户端应该是 读取事件
         this.readInterestOp = readInterestOp;
         try {
             //设置 读写都不阻塞 还不太明白 底层开启额外线程写入???
@@ -194,11 +194,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * Set read pending to {@code false}.
      */
     protected final void clearReadPending() {
+        //当已经完成注册的情况 一般也就是处在这里
         if (isRegistered()) {
             EventLoop eventLoop = eventLoop();
             if (eventLoop.inEventLoop()) {
+                //直接清除 对应的 autoRead 时 注册的 事件
                 clearReadPending0();
             } else {
+                //clearReadPendingRunnable 就是封装了clearReadPending0
                 eventLoop.execute(clearReadPendingRunnable);
             }
         } else {
@@ -248,6 +251,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
     protected abstract class AbstractNioUnsafe extends AbstractUnsafe implements NioUnsafe {
 
+        /**
+         * 移除 beginRead 注册的事件 server 对应accept  client 对应 read
+         */
         protected final void removeReadOp() {
             SelectionKey key = selectionKey();
             // Check first if the key is still valid as it may be canceled as part of the deregistration
@@ -268,29 +274,41 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             return javaChannel();
         }
 
+        /**
+         * 根据 指定地址 进行connect  这里一般情况是发起连接请求 但是这里不能直接给与结果 而是要 server 那段处理请求
+         * @param remoteAddress
+         * @param localAddress  没有的情况下为null
+         * @param promise
+         */
         @Override
         public final void connect(
                 final SocketAddress remoteAddress, final SocketAddress localAddress, final ChannelPromise promise) {
+            //设置 不可关闭
             if (!promise.setUncancellable() || !ensureOpen(promise)) {
                 return;
             }
 
             try {
+                //已经开始连接
                 if (connectPromise != null) {
                     // Already a connect in process.
                     throw new ConnectionPendingException();
                 }
 
                 boolean wasActive = isActive();
+                //如果已经完成连接 激活active 事件 这时 就不需要connect了 而是修改为 read 准备接受server 的数据
                 if (doConnect(remoteAddress, localAddress)) {
                     fulfillConnectPromise(promise, wasActive);
                 } else {
+                    //设置 连接 promise 代表开始连接
                     connectPromise = promise;
+                    //设置 连接地址
                     requestedRemoteAddress = remoteAddress;
 
                     // Schedule connect timeout.
                     int connectTimeoutMillis = config().getConnectTimeoutMillis();
                     if (connectTimeoutMillis > 0) {
+                        //设置一个 超时任务  这个任务是一旦连接超时 就 自动关闭channel 并抛出异常
                         connectTimeoutFuture = eventLoop().schedule(new Runnable() {
                             @Override
                             public void run() {
@@ -298,31 +316,43 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                                 ConnectTimeoutException cause =
                                         new ConnectTimeoutException("connection timed out: " + remoteAddress);
                                 if (connectPromise != null && connectPromise.tryFailure(cause)) {
+                                    //这里的 close 最后又会关闭 connectTimeoutFuture
                                     close(voidPromise());
                                 }
                             }
                         }, connectTimeoutMillis, TimeUnit.MILLISECONDS);
                     }
 
+                    //当连接成功时 触发回调
                     promise.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
+                            //如果任务被关闭
                             if (future.isCancelled()) {
+                                //关闭这个定时任务 防止 它 到时抛出异常
                                 if (connectTimeoutFuture != null) {
                                     connectTimeoutFuture.cancel(false);
                                 }
                                 connectPromise = null;
+                                //如果连接任务 被关闭 就 关闭channel
                                 close(voidPromise());
                             }
                         }
                     });
                 }
             } catch (Throwable t) {
+                //annotateConnectException 做一个异常的映射
                 promise.tryFailure(annotateConnectException(t, remoteAddress));
+                //如果channel 已经被关闭 执行close 方法
                 closeIfClosed();
             }
         }
 
+        /**
+         * 设置 connect promise 对象
+         * @param promise
+         * @param wasActive  一般是 false
+         */
         private void fulfillConnectPromise(ChannelPromise promise, boolean wasActive) {
             if (promise == null) {
                 // Closed via cancellation and the promise has been notified already.
@@ -338,6 +368,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
             // Regardless if the connection attempt was cancelled, channelActive() event should be triggered,
             // because what happened is what happened.
+            //触发 active事件
             if (!wasActive && active) {
                 pipeline().fireChannelActive();
             }
@@ -359,6 +390,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             closeIfClosed();
         }
 
+        /**
+         * 当select 轮询到 连接事件时 转发到这里进行处理
+         */
         @Override
         public final void finishConnect() {
             // Note this method is invoked by the event loop only if the connection attempt was
@@ -367,8 +401,11 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             assert eventLoop().inEventLoop();
 
             try {
+                //这里还没有完成connect 所以是false
                 boolean wasActive = isActive();
+                //这里完成了 连接事件
                 doFinishConnect();
+                //设置 promise 结果
                 fulfillConnectPromise(connectPromise, wasActive);
             } catch (Throwable t) {
                 fulfillConnectPromise(connectPromise, annotateConnectException(t, requestedRemoteAddress));
@@ -418,6 +455,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
+                //这里为channel 注册 select 但是没有设置感兴趣事件 这里使用的是未包装的 select 就是每次select 之前不会清空key
+                //这个返回的selectionKey 代表 该channel 与 selector的 关联关系 可以通过它 为这个channel设置感兴趣设置 能够监听到不同事件
+                //同时attachment 绑定了自己 这样方便select 能够知道获取到 selectKey是哪个channel 的 并且可以直接对channel 进行操作
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
@@ -441,18 +481,25 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         eventLoop().cancel(selectionKey());
     }
 
+    /**
+     * 当channel active 也就是绑定 or 连接完成后开始读取
+     * @throws Exception
+     */
     @Override
     protected void doBeginRead() throws Exception {
         // Channel.read() or ChannelHandlerContext.read() was called
+        //这个selectKey 是在register完成时设置的
         final SelectionKey selectionKey = this.selectionKey;
         if (!selectionKey.isValid()) {
             return;
         }
-
+        //正在等待读取数据
         readPending = true;
 
+        //获取当前感兴趣的事件
         final int interestOps = selectionKey.interestOps();
         if ((interestOps & readInterestOp) == 0) {
+            //添加事件 这样在select 上就能 获取 准备完成的读事件了 在server 会设置 accept事件
             selectionKey.interestOps(interestOps | readInterestOp);
         }
     }
@@ -471,22 +518,30 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * Returns an off-heap copy of the specified {@link ByteBuf}, and releases the original one.
      * Note that this method does not create an off-heap copy if the allocation / deallocation cost is too high,
      * but just returns the original {@link ByteBuf}..
+     * 将原本的 bytebuf 封装成 directBuffer
      */
     protected final ByteBuf newDirectBuffer(ByteBuf buf) {
         final int readableBytes = buf.readableBytes();
+        //该buf 中没有数据 返回空对象
         if (readableBytes == 0) {
             ReferenceCountUtil.safeRelease(buf);
             return Unpooled.EMPTY_BUFFER;
         }
 
+        //获取 bytebuf 分配器
         final ByteBufAllocator alloc = alloc();
+        //如果是 该分配器是池化直接内存分配器
         if (alloc.isDirectBufferPooled()) {
+            //分配指定大小的 直接内存bytebuf对象
             ByteBuf directBuf = alloc.directBuffer(readableBytes);
+            //将数据转移
             directBuf.writeBytes(buf, buf.readerIndex(), readableBytes);
+            //释放原对象
             ReferenceCountUtil.safeRelease(buf);
             return directBuf;
         }
 
+        //如果 该分配器是 非池化分配器  或者是 非直接内存分配器  尝试获取本地线程中缓存的直接内存对象
         final ByteBuf directBuf = ByteBufUtil.threadLocalDirectBuffer();
         if (directBuf != null) {
             directBuf.writeBytes(buf, buf.readerIndex(), readableBytes);
@@ -495,6 +550,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
 
         // Allocating and deallocating an unpooled direct buffer is very expensive; give up.
+        // 使用非池化的 bytebuf 分配 directbuffer 很昂贵 放弃该操作
         return buf;
     }
 
@@ -536,15 +592,22 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         return buf;
     }
 
+    /**
+     * 关闭channel 要执行的逻辑 下层就是 关闭 JDK channel 了  这里主要是针对连接还未完成的情况下 被close
+     * @throws Exception
+     */
     @Override
     protected void doClose() throws Exception {
+        //这个是用户调用连接返回的 promise 对象
         ChannelPromise promise = connectPromise;
+        //为之前的 connectPromise 设置 异常
         if (promise != null) {
             // Use tryFailure() instead of setFailure() to avoid the race against cancel().
             promise.tryFailure(DO_CLOSE_CLOSED_CHANNEL_EXCEPTION);
             connectPromise = null;
         }
 
+        //如果 等待连接的 future 还存在 就直接关闭 这个对象是当发起连接时 在指定时候后自动抛出异常提示用户 连接超时的对象
         ScheduledFuture<?> future = connectTimeoutFuture;
         if (future != null) {
             future.cancel(false);

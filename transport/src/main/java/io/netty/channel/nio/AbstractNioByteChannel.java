@@ -96,44 +96,75 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 ((SocketChannelConfig) config).isAllowHalfClosure();
     }
 
+    /**
+     * client 的 读取事件 也就是 读取数据  server 接受到新连接后 也是创建NioSocketChannel 然后用这里 读取 client 端相同 JDK channel 发送来的数据
+     */
     protected class NioByteUnsafe extends AbstractNioUnsafe {
 
+        /**
+         * 出现异常情况 关闭读事件
+         * @param pipeline
+         */
         private void closeOnRead(ChannelPipeline pipeline) {
+            //判断JDK channel 是否已经被关闭
             if (!isInputShutdown0()) {
+                //如果允许半关闭
                 if (isAllowHalfClosure(config())) {
+                    //这个是针对JDKchannel 的 方法 暂时看不懂  作用是 暂时关闭读取而不关闭channel 能恢复吗???在什么时机回复???
+                    //Shutdown the connection for reading without closing the channel
                     shutdownInput();
                     pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
                 } else {
+                    //直接进行关闭
                     close(voidPromise());
                 }
+                //关闭的情况触发用户自定义事件
             } else {
                 inputClosedSeenErrorOnRead = true;
                 pipeline.fireUserEventTriggered(ChannelInputShutdownReadComplete.INSTANCE);
             }
         }
 
+        /**
+         * 处理读取异常
+         * @param pipeline
+         * @param byteBuf
+         * @param cause
+         * @param close
+         * @param allocHandle
+         */
         private void handleReadException(ChannelPipeline pipeline, ByteBuf byteBuf, Throwable cause, boolean close,
                 RecvByteBufAllocator.Handle allocHandle) {
             if (byteBuf != null) {
+                //出现异常的 情况 还是可读的就继续读取
                 if (byteBuf.isReadable()) {
                     readPending = false;
                     pipeline.fireChannelRead(byteBuf);
                 } else {
+                    //不能读就释放
                     byteBuf.release();
                 }
             }
+            //记录本次读取信息
             allocHandle.readComplete();
+            //触发2个事件
             pipeline.fireChannelReadComplete();
             pipeline.fireExceptionCaught(cause);
             if (close || cause instanceof IOException) {
+                //如果是IO异常 关闭读事件
                 closeOnRead(pipeline);
             }
         }
 
+        /**
+         * 客户端读取数据
+         */
         @Override
         public final void read() {
             final ChannelConfig config = config();
+            //对应到 JDK channel 关闭 或者关闭了读事件 对应  closeOnRead
             if (shouldBreakReadReady(config)) {
+                //取消select上的 read 事件
                 clearReadPending();
                 return;
             }
@@ -147,26 +178,36 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             try {
                 do {
                     byteBuf = allocHandle.allocate(allocator);
+                    //内层：将数据读取到bytebuf中  外层：更新 读取的 下标
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
+                    //代表没数据可读
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
+                        // 释放对象
                         byteBuf.release();
                         byteBuf = null;
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // There is nothing left to read as we received an EOF.
+                            //代表结束了读取状态
                             readPending = false;
                         }
                         break;
                     }
 
+                    //增加读取的消息数  一次只增加1
                     allocHandle.incMessagesRead(1);
                     readPending = false;
+                    //触发 读取
                     pipeline.fireChannelRead(byteBuf);
+                    //调用链触发完后 置空(在 tail 节点会进行释放)
                     byteBuf = null;
                 } while (allocHandle.continueReading());
 
+                //触发2个 事件
+                //会记录本次 读取的数据
                 allocHandle.readComplete();
+                //触发handler
                 pipeline.fireChannelReadComplete();
 
                 if (close) {
@@ -181,6 +222,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 // * The user called Channel.read() or ChannelHandlerContext.read() in channelReadComplete(...) method
                 //
                 // See https://github.com/netty/netty/issues/2254
+                // 如果读取被关闭就 取消该事件
                 if (!readPending && !config.isAutoRead()) {
                     removeReadOp();
                 }
@@ -266,17 +308,26 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         incompleteWrite(writeSpinCount < 0);
     }
 
+    /**
+     * 对获取到的数据 做 过滤处理
+     * @param msg
+     * @return
+     */
     @Override
     protected final Object filterOutboundMessage(Object msg) {
+        //如果数据是 bytebuf 类型
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
+            //如果是 直接内存 直接返回
             if (buf.isDirect()) {
                 return msg;
             }
 
+            //否则封装成直接内存
             return newDirectBuffer(buf);
         }
 
+        //在rocketMq中有看到这个东西 不懂是啥
         if (msg instanceof FileRegion) {
             return msg;
         }

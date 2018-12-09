@@ -23,7 +23,7 @@ import io.netty.util.internal.UnstableApi;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 一个 特殊的 future 对象
+ * 一个 特殊的 future 对象  在channel 被关闭时返回
  */
 @UnstableApi
 public final class VoidChannelPromise extends AbstractFuture<Void> implements ChannelPromise {

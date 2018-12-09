@@ -183,12 +183,16 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
                 final ChannelPipeline pipeline = ch.pipeline();
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
+                    //服务端会自动设置一个ChannelInitializer 对象后再设置 config.handler 对象
                     pipeline.addLast(handler);
                 }
 
+                //能执行这里的 一定是独占线程
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
+                        //最后执行这个 因为如果 config.handler 也是ChannelInitializer 然后在里面使用eventloop添加任务 就会加在ServerBootstrapAcceptor的后面
+                        //相当于被吃掉了
                         pipeline.addLast(new ServerBootstrapAcceptor(
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }
@@ -220,8 +224,16 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         return new Map.Entry[size];
     }
 
+    /**
+     * 该对象 会在 channel register 也就是 注册到selector 上时 触发handler 对象并在任务尾部设置
+     *
+     * 该对象负责接受 ServerSocketChannel 接受到的 SocketChannel对象
+     */
     private static class ServerBootstrapAcceptor extends ChannelInboundHandlerAdapter {
 
+        /**
+         *
+         */
         private final EventLoopGroup childGroup;
         private final ChannelHandler childHandler;
         private final Entry<ChannelOption<?>, Object>[] childOptions;
@@ -249,20 +261,30 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             };
         }
 
+        /**
+         * 当触发之后的 读事件后 读到的是 client 的连接
+         * @param ctx
+         * @param msg
+         */
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            //转换成 client channel
             final Channel child = (Channel) msg;
 
+            //为 接受到的 channel 设置 handler 对象
             child.pipeline().addLast(childHandler);
 
+            //为channel 设置属性
             setChannelOptions(child, childOptions, logger);
 
+            //设置 attr
             for (Entry<AttributeKey<?>, Object> e: childAttrs) {
                 child.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
             }
 
             try {
+                //将监听到的 SocketChannel 注册到 本服务端的 事件循环组上 设置监听read事件  该对象就是用来监听对应的clientSocketChannel 发送来的数据
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {
@@ -276,18 +298,32 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             }
         }
 
+        /**
+         * 关闭获取到的client channel
+         * @param child
+         * @param t
+         */
         private static void forceClose(Channel child, Throwable t) {
             child.unsafe().closeForcibly();
             logger.warn("Failed to register an accepted channel: {}", child, t);
         }
 
+        /**
+         * 当捕获到异常时 会拦截下来  这里拦截的就是 serverSocketChannel 这条通道的 pipeline
+         * @param ctx
+         * @param cause
+         * @throws Exception
+         */
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
             final ChannelConfig config = ctx.channel().config();
             if (config.isAutoRead()) {
                 // stop accept new connections for 1 second to allow the channel to recover
                 // See https://github.com/netty/netty/issues/1328
+                // 关闭自动读取 针对 ServerSocketChannel read 也就是 accept事件 出现异常时 先暂停获取新连接
+                // 怎么做到的 autoRead 只是在一开始 注册了accept 难道要在这里注销该事件吗???
                 config.setAutoRead(false);
+                //在指定时间后 恢复 AutoRead 为true  这时又会重新触发 beginRead 注册accept事件
                 ctx.channel().eventLoop().schedule(enableAutoReadTask, 1, TimeUnit.SECONDS);
             }
             // still let the exceptionCaught event flow through the pipeline to give the user

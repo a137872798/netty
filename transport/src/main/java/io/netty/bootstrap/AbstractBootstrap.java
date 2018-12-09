@@ -343,6 +343,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             // 代表还没有完成 使用指定的 等待注册promise对象
             final PendingRegistrationPromise promise = new PendingRegistrationPromise(channel);
             regFuture.addListener(new ChannelFutureListener() {
+                //当channel 创建完成 并且 绑定了 eventloop 和 将channel 注册到选择器上后
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     Throwable cause = future.cause();
@@ -356,7 +357,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
                         //这里是 设置成功标识
                         promise.registered();
 
-                        //执行bind 方法
+                        //执行bind 方法  就是将JDK channel 绑定到 地址上
                         doBind0(regFuture, channel, localAddress, promise);
                     }
                 }
@@ -439,12 +440,13 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
-        //使用channel 注册的线程执行 就代表这也是异步操作 注册失败还能获取到 eventLoop对象吗???
+        //使用channel 注册的线程执行 就代表这也是异步操作
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
-                    //将bind 结果 设置到 promise 中 并设置回调 当操作失败时 关闭channel 对象
+                    //将bind 结果 设置到 promise 中 并设置回调 当操作失败时 关闭channel 对象 也是委托到channel 进行bind 看来跟channel 有关的操作都是通过unsafe
+                    //完成的  只是 bootstrap 作为一个转发器 这个bind 已经触发了调用链 这里之前已经设置了handler 但是handler 并没有处理bind的相关方法
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     //如果 设置eventloop失败了 那么bind 也就失败了
@@ -588,7 +590,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
 
         /**
-         * 获取 事件执行器对象
+         * 获取 事件执行器对象 这个executor 是什么时机执行的???
          * @return
          */
         @Override

@@ -49,6 +49,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Be aware that this class is marked as {@link Sharable} and so the implementation must be safe to be re-used.
  *
  * @param <C>   A sub-type of {@link Channel}
+ *
+ * 作为 netty handler 的 入口类 当channel 首次bind or connect时 会触发 active 事件 就应该会走到 这里
  */
 @Sharable
 public abstract class ChannelInitializer<C extends Channel> extends ChannelInboundHandlerAdapter {
@@ -70,6 +72,11 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
      */
     protected abstract void initChannel(C ch) throws Exception;
 
+    /**
+     * 当channel 绑定到 selector 时 会触发 register 方法 也就是这里  执行handler 的 一定是 独占线程
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     @SuppressWarnings("unchecked")
     public final void channelRegistered(ChannelHandlerContext ctx) throws Exception {
@@ -115,16 +122,25 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
         initMap.remove(ctx);
     }
 
+    /**
+     * 一般传入的 就是 headContext
+     * @param ctx
+     * @return
+     * @throws Exception
+     */
     @SuppressWarnings("unchecked")
     private boolean initChannel(ChannelHandlerContext ctx) throws Exception {
+        //将 ctx 设置到容器中
         if (initMap.add(ctx)) { // Guard against re-entrance.
             try {
+                //做了初始化工作
                 initChannel((C) ctx.channel());
             } catch (Throwable cause) {
                 // Explicitly call exceptionCaught(...) as we removed the handler before calling initChannel(...).
                 // We do so to prevent multiple calls to initChannel(...).
                 exceptionCaught(ctx, cause);
             } finally {
+                //将本节点移除
                 remove(ctx);
             }
             return true;
@@ -132,6 +148,10 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
         return false;
     }
 
+    /**
+     * 从pipeline中移除指定节点
+     * @param ctx
+     */
     private void remove(final ChannelHandlerContext ctx) {
         try {
             ChannelPipeline pipeline = ctx.pipeline();
@@ -140,9 +160,12 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
             }
         } finally {
             // The removal may happen in an async fashion if the EventExecutor we use does something funky.
+            //移除成功 会设置标识
             if (ctx.isRemoved()) {
+                //从容器中移除
                 initMap.remove(ctx);
             } else {
+                //避免生成内存泄露
                 // Ensure we always remove from the Map in all cases to not produce a memory leak.
                 ctx.channel().closeFuture().addListener(new ChannelFutureListener() {
                     @Override

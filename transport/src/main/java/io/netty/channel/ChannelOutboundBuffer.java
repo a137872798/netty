@@ -48,6 +48,8 @@ import static java.lang.Math.min;
  * <li>{@link #getUserDefinedWritability(int)} and {@link #setUserDefinedWritability(int, boolean)}</li>
  * </ul>
  * </p>
+ *
+ * unsafe 专用的 写入数据的 buf 对象
  */
 public final class ChannelOutboundBuffer {
     // Assuming a 64-bit JVM:
@@ -108,6 +110,8 @@ public final class ChannelOutboundBuffer {
     /**
      * Add given message to this {@link ChannelOutboundBuffer}. The given {@link ChannelPromise} will be notified once
      * the message was written.
+     *
+     * 将数据 保存到
      */
     public void addMessage(Object msg, int size, ChannelPromise promise) {
         Entry entry = Entry.newInstance(msg, size, total(msg), promise);
@@ -130,6 +134,8 @@ public final class ChannelOutboundBuffer {
     /**
      * Add a flush to this {@link ChannelOutboundBuffer}. This means all previous added messages are marked as flushed
      * and so you will be able to handle them.
+     *
+     * 刷盘前的准备操作
      */
     public void addFlush() {
         // There is no need to process all entries if there was already a flush before and no new messages
@@ -630,6 +636,11 @@ public final class ChannelOutboundBuffer {
         return flushed == 0;
     }
 
+    /**
+     * 当channel 关闭时触发 还没看
+     * @param cause
+     * @param notify
+     */
     void failFlushed(Throwable cause, boolean notify) {
         // Make sure that this method does not reenter.  A listener added to the current promise can be notified by the
         // current thread in the tryFailure() call of the loop below, and the listener can trigger another fail() call
@@ -652,6 +663,11 @@ public final class ChannelOutboundBuffer {
         }
     }
 
+    /**
+     * 在出现异常时 需要关闭output 就会调用这里
+     * @param cause
+     * @param allowChannelOpen
+     */
     void close(final Throwable cause, final boolean allowChannelOpen) {
         if (inFail) {
             channel.eventLoop().execute(new Runnable() {
@@ -693,6 +709,10 @@ public final class ChannelOutboundBuffer {
         clearNioBuffers();
     }
 
+    /**
+     * 最后 finalFulsh 结束后触发
+     * @param cause
+     */
     void close(ClosedChannelException cause) {
         close(cause, false);
     }

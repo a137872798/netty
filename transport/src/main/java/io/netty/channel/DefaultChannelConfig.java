@@ -324,11 +324,19 @@ public class DefaultChannelConfig implements ChannelConfig {
         return autoRead == 1;
     }
 
+    /**
+     * 更改autoRead 配置
+     * @param autoRead
+     * @return
+     */
     @Override
     public ChannelConfig setAutoRead(boolean autoRead) {
+        //1 代表 autoRead
         boolean oldAutoRead = AUTOREAD_UPDATER.getAndSet(this, autoRead ? 1 : 0) == 1;
+        //这里代表 由 false 变成true 就触发读事件
         if (autoRead && !oldAutoRead) {
             channel.read();
+            //由自动读取变成 不读取
         } else if (!autoRead && oldAutoRead) {
             autoReadCleared();
         }

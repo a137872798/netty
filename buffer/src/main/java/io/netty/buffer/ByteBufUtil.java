@@ -799,13 +799,16 @@ public final class ByteBufUtil {
     /**
      * Returns a cached thread-local direct buffer, if available.
      *
+     * 如果可以的话 分配一个在本地线程中缓存的 directbytebuf 对象
      * @return a cached thread-local direct buffer, if available.  {@code null} otherwise.
      */
     public static ByteBuf threadLocalDirectBuffer() {
+        //本地缓存的 bytebuf 为 0
         if (THREAD_LOCAL_BUFFER_SIZE <= 0) {
             return null;
         }
 
+        //是否支持使用JDK unsafe 对象进行分配
         if (PlatformDependent.hasUnsafe()) {
             return ThreadLocalUnsafeDirectByteBuf.newInstance();
         } else {

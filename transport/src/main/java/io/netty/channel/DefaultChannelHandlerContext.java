@@ -17,13 +17,20 @@ package io.netty.channel;
 
 import io.netty.util.concurrent.EventExecutor;
 
+/**
+ * 默认的 上下文对象
+ */
 final class DefaultChannelHandlerContext extends AbstractChannelHandlerContext {
 
+    /**
+     * 这里关联一个 处理器对象
+     */
     private final ChannelHandler handler;
 
     DefaultChannelHandlerContext(
             DefaultChannelPipeline pipeline, EventExecutor executor, String name, ChannelHandler handler) {
         super(pipeline, executor, name, isInbound(handler), isOutbound(handler));
+        //必须要设置
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -34,6 +41,8 @@ final class DefaultChannelHandlerContext extends AbstractChannelHandlerContext {
     public ChannelHandler handler() {
         return handler;
     }
+
+    //判断是 inbound or outbound 就是看继承了 哪种
 
     private static boolean isInbound(ChannelHandler handler) {
         return handler instanceof ChannelInboundHandler;

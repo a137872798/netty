@@ -27,6 +27,8 @@ import java.net.SocketAddress;
  * <li>{@link #flush()}</li>
  * <li>and the shortcut methods which calls the methods mentioned above
  * </ul>
+ *
+ * 服务端channel
  */
 public abstract class AbstractServerChannel extends AbstractChannel implements ServerChannel {
     private static final ChannelMetadata METADATA = new ChannelMetadata(false, 16);

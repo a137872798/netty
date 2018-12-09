@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 /**
  * Default {@link AttributeMap} implementation which use simple synchronization per bucket to keep the memory overhead
  * as low as possible.
+ *
+ * 以数组方式 实现map对象
  */
 public class DefaultAttributeMap implements AttributeMap {
 

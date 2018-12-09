@@ -26,23 +26,46 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 @SuppressWarnings("ComparableImplementedButEqualsNotOverridden")
+/**
+ * 定时任务对象
+ */
 final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFuture<V>, PriorityQueueNode {
+    /**
+     * 为每个 任务设置唯一id
+     */
     private static final AtomicLong nextTaskId = new AtomicLong();
+    /**
+     * 为什么要设置成系统的 起始时间 一个说法是 该定时是基于 时间间隔的 而不是系统时间 如果中途修改了系统时间 也是不影响
+     */
     private static final long START_TIME = System.nanoTime();
 
+    /**
+     * 每次获取的 就是时间间隔
+     * @return
+     */
     static long nanoTime() {
         return System.nanoTime() - START_TIME;
     }
 
+    /**
+     * 获取 最后的时间
+     * @param delay
+     * @return
+     */
     static long deadlineNanos(long delay) {
         long deadlineNanos = nanoTime() + delay;
-        // Guard against overflow
+        // Guard against overflow 超过long 最大值
         return deadlineNanos < 0 ? Long.MAX_VALUE : deadlineNanos;
     }
 
     private final long id = nextTaskId.getAndIncrement();
+    /**
+     * 下次任务的执行时间
+     */
     private long deadlineNanos;
-    /* 0 - no repeat, >0 - repeat at fixed rate, <0 - repeat with fixed delay */
+    /* 0 - no repeat, >0 - repeat at fixed rate, <0 - repeat with fixed delay
+    *  0代表单次任务 正数代表以指定时间间隔执行 负数是 按执行 延迟 正好对应JDK 的3种模式
+    * */
     private final long periodNanos;
 
     private int queueIndex = INDEX_NOT_IN_QUEUE;
@@ -118,20 +141,30 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
         }
     }
 
+    /**
+     * 定时任务的 执行逻辑  这里代表已经到执行时间了
+     */
     @Override
     public void run() {
         assert executor().inEventLoop();
         try {
+            //如果是单次任务
             if (periodNanos == 0) {
+                //设置成不可中断
                 if (setUncancellableInternal()) {
+                    //执行任务并获取结果
                     V result = task.call();
+                    //设置成功结果
                     setSuccessInternal(result);
                 }
             } else {
                 // check if is done as it may was cancelled
+                //当任务 还没有被关闭  为什么这个不用设置成不可中断 可能如果要一直执行的定时任务不能灵活的取消会很麻烦
                 if (!isCancelled()) {
+                    //委托执行
                     task.call();
                     if (!executor().isShutdown()) {
+                        //计算下次 触发时间后 重新加入到任务队列
                         long p = periodNanos;
                         if (p > 0) {
                             deadlineNanos += p;
@@ -160,13 +193,20 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
      */
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
+        //关闭并设置在过程种能否被中断
         boolean canceled = super.cancel(mayInterruptIfRunning);
+        //关闭成功的情况下 从任务队列中移除
         if (canceled) {
             ((AbstractScheduledEventExecutor) executor()).removeScheduled(this);
         }
         return canceled;
     }
 
+    /**
+     * 关闭 却不移除 对应到在run() 中判断是否被关闭
+     * @param mayInterruptIfRunning
+     * @return
+     */
     boolean cancelWithoutRemove(boolean mayInterruptIfRunning) {
         return super.cancel(mayInterruptIfRunning);
     }
@@ -185,11 +225,22 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
                   .append(')');
     }
 
+    /**
+     * 获取 对于定时任务队列中的 下标  这个值如果可以自己设置还有意义吗 还是在什么地方需要判断这个
+     * @param queue
+     * @return
+     */
     @Override
     public int priorityQueueIndex(DefaultPriorityQueue<?> queue) {
         return queueIndex;
     }
 
+    /**
+     * 这个是用于 清除优先队列中 该任务的 因为无效了 index 要设置为-1
+     * @param queue The queue for which the index is being set.
+     * @param i The index as used by {@link DefaultPriorityQueue}.
+     *
+     */
     @Override
     public void priorityQueueIndex(DefaultPriorityQueue<?> queue, int i) {
         queueIndex = i;

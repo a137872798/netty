@@ -143,6 +143,11 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
         return SocketUtils.localSocketAddress(javaChannel().socket());
     }
 
+    /**
+     * 从配置中获取最大连接数进行绑定
+     * @param localAddress
+     * @throws Exception
+     */
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
         if (PlatformDependent.javaVersion() >= 7) {
@@ -157,12 +162,20 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
         javaChannel().close();
     }
 
+    /**
+     * 读取数据
+     * @param buf
+     * @return
+     * @throws Exception
+     */
     @Override
     protected int doReadMessages(List<Object> buf) throws Exception {
+        //JDK serverChannel 接受 clientChannel
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
             if (ch != null) {
+                //也就是 buf中增加的是 NioSocketChannel
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
             }
@@ -219,6 +232,9 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
             super(channel, javaSocket);
         }
 
+        /**
+         * 当serverSocketChannel 关闭 自动读取时 触发 也就不会接受新的连接了
+         */
         @Override
         protected void autoReadCleared() {
             clearReadPending();

@@ -132,16 +132,27 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
             return lastBytesRead;
         }
 
+        /**
+         * 是否能继续读取
+         * @return
+         */
         @Override
         public boolean continueReading() {
             return continueReading(defaultMaybeMoreSupplier);
         }
 
+        /**
+         * 是否能继续读取
+         * @param maybeMoreDataSupplier A supplier that determines if there maybe more data to read.
+         * @return
+         */
         @Override
         public boolean continueReading(UncheckedBooleanSupplier maybeMoreDataSupplier) {
             return config.isAutoRead() &&
+                    //maybeMoreDataSupplier.get() 这行是主要判断是否还有数据可读
                    (!respectMaybeMoreData || maybeMoreDataSupplier.get()) &&
                    totalMessages < maxMessagePerRead &&
+                    //针对serverSocketChannel 并不会设置这个东西 所以 就是false
                    totalBytesRead > 0;
         }
 

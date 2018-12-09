@@ -18,6 +18,8 @@ package io.netty.util.internal;
 /**
  * Provides methods for {@link DefaultPriorityQueue} to maintain internal state. These methods should generally not be
  * used outside the scope of {@link DefaultPriorityQueue}.
+ *
+ * 优先队列元素
  */
 public interface PriorityQueueNode {
     /**
@@ -30,6 +32,8 @@ public interface PriorityQueueNode {
      * {@code queue}.
      * <p>
      * Throwing exceptions from this method will result in undefined behavior.
+     *
+     * 获取位于优先队列的下标
      */
     int priorityQueueIndex(DefaultPriorityQueue<?> queue);
 
@@ -39,6 +43,8 @@ public interface PriorityQueueNode {
      * Throwing exceptions from this method will result in undefined behavior.
      * @param queue The queue for which the index is being set.
      * @param i The index as used by {@link DefaultPriorityQueue}.
+     *
+     * 设置优先队列下标
      */
     void priorityQueueIndex(DefaultPriorityQueue<?> queue, int i);
 }

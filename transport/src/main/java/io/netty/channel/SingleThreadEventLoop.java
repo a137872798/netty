@@ -29,12 +29,16 @@ import java.util.concurrent.ThreadFactory;
 /**
  * Abstract base class for {@link EventLoop}s that execute all its submitted tasks in a single thread.
  *
+ * NioEventLoop 的 父类 包含存放普通任务的 队列
  */
 public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor implements EventLoop {
 
     protected static final int DEFAULT_MAX_PENDING_TASKS = Math.max(16,
             SystemPropertyUtil.getInt("io.netty.eventLoop.maxPendingTasks", Integer.MAX_VALUE));
 
+    /**
+     * 该队列 是在普通任务执行完之后执行的  比如 批量提交 可以 提升性能
+     */
     private final Queue<Runnable> tailTasks;
 
     protected SingleThreadEventLoop(EventLoopGroup parent, ThreadFactory threadFactory, boolean addTaskWakesUp) {
@@ -49,6 +53,7 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
                                     boolean addTaskWakesUp, int maxPendingTasks,
                                     RejectedExecutionHandler rejectedExecutionHandler) {
         super(parent, threadFactory, addTaskWakesUp, maxPendingTasks, rejectedExecutionHandler);
+        //在NioEventLoop 下 依然是 mqsc队列
         tailTasks = newTaskQueue(maxPendingTasks);
     }
 
@@ -114,6 +119,7 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
     /**
      * Adds a task to be run once at the end of next (or current) {@code eventloop} iteration.
      *
+     * 设置当普通任务结束后处理的任务
      * @param task to be added.
      */
     @UnstableApi
@@ -127,6 +133,7 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
             reject(task);
         }
 
+        //如果 是推荐唤醒select的任务 就 唤醒select  写任务是不推荐唤醒select的
         if (wakesUpForTask(task)) {
             wakeup(inEventLoop());
         }
@@ -144,13 +151,22 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
         return tailTasks.remove(ObjectUtil.checkNotNull(task, "task"));
     }
 
+    /**
+     * 判断该任务能否唤醒 (写任务 无法唤醒)
+     * @param task
+     * @return
+     */
     @Override
     protected boolean wakesUpForTask(Runnable task) {
         return !(task instanceof NonWakeupRunnable);
     }
 
+    /**
+     * 每次执行普通任务队列中任务后都会执行该钩子
+     */
     @Override
     protected void afterRunningAllTasks() {
+        //从 tailTask队列中获取任务 这个队列应该是设置特殊任务的
         runAllTasksFrom(tailTasks);
     }
 
@@ -166,6 +182,8 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
 
     /**
      * Marker interface for {@link Runnable} that will not trigger an {@link #wakeup(boolean)} in all cases.
+     *
+     * 标记不需要唤醒的 任务
      */
     interface NonWakeupRunnable extends Runnable { }
 }

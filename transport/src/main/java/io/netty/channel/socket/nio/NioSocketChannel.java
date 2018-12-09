@@ -104,7 +104,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
      * @param socket    the {@link SocketChannel} which will be used
      */
     public NioSocketChannel(Channel parent, SocketChannel socket) {
-        //客户端channel 使用 read事件进行注册
+        //客户端channel 使用 read事件进行注册  这里的 parent 在server接受到 client channel时 是 server
         super(parent, socket);
         //初始化配置信息
         config = new NioSocketChannelConfig(this, socket.socket());
@@ -198,6 +198,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         return isInputShutdown();
     }
 
+    /**
+     * 关闭 读取数据
+     * @param promise
+     * @return
+     */
     @Override
     public ChannelFuture shutdownInput(final ChannelPromise promise) {
         EventLoop loop = eventLoop();
@@ -266,6 +271,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             promise.setSuccess();
         }
     }
+
+    /**
+     * 关闭读取数据
+     * @param promise
+     */
     private void shutdownInput0(final ChannelPromise promise) {
         try {
             shutdownInput0();
@@ -298,6 +308,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         doBind0(localAddress);
     }
 
+    /**
+     * 将channel 绑定到本地
+     * @param localAddress
+     * @throws Exception
+     */
     private void doBind0(SocketAddress localAddress) throws Exception {
         if (PlatformDependent.javaVersion() >= 7) {
             SocketUtils.bind(javaChannel(), localAddress);
@@ -306,16 +321,26 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         }
     }
 
+    /**
+     * 连接 的 实际逻辑
+     * @param remoteAddress
+     * @param localAddress
+     * @return
+     * @throws Exception
+     */
     @Override
     protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress) throws Exception {
         if (localAddress != null) {
+            //先绑定到本地 也就是针对 Bootstrap 调用bind 没有意义 一旦调用 connect就会重新创建一个 JDK channel并在这里进行绑定
             doBind0(localAddress);
         }
 
         boolean success = false;
         try {
+            //JDK nio变成
             boolean connected = SocketUtils.connect(javaChannel(), remoteAddress);
             if (!connected) {
+                //如果直接没有连接过 就设置连接事件 不同于 服务端在 active 后才 开始 设置 selectKey
                 selectionKey().interestOps(SelectionKey.OP_CONNECT);
             }
             success = true;
@@ -327,8 +352,13 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         }
     }
 
+    /**
+     * 当客户端channel 的 selectKey 准备完成时
+     * @throws Exception
+     */
     @Override
     protected void doFinishConnect() throws Exception {
+        //如果连接失败 抛出 Error 这个应该是NIO操作
         if (!javaChannel().finishConnect()) {
             throw new Error();
         }
@@ -345,10 +375,18 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         javaChannel().close();
     }
 
+    /**
+     * 将数据读取到 bytebuf 上
+     * @param byteBuf
+     * @return
+     * @throws Exception
+     */
     @Override
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+        //设置读取的大小
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
+        //将JDK channel 中的数据 按照指定size 读取
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
 
@@ -377,6 +415,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         }
     }
 
+    /**
+     * 将数据写入 到socketChannel 缓冲区的过程 也就是flush 的 实际逻辑
+     * @param in
+     * @throws Exception
+     */
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         SocketChannel ch = javaChannel();
@@ -446,6 +489,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     }
 
     private final class NioSocketChannelUnsafe extends NioByteUnsafe {
+        /**
+         * 当开始关闭 channel 时 会触发
+         * @return
+         */
         @Override
         protected Executor prepareToClose() {
             try {
@@ -454,6 +501,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // because we try to read or write until the actual close happens which may be later due
                     // SO_LINGER handling.
                     // See https://github.com/netty/netty/issues/4449
+                    //进行注销 也就是在select 上取消该 channel
                     doDeregister();
                     return GlobalEventExecutor.INSTANCE;
                 }

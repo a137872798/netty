@@ -323,12 +323,15 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     /**
      * {@inheritDoc}
      *
+     * 关闭该任务并且 设置成 能否被干扰  稍后看
      * @param mayInterruptIfRunning this value has no effect in this implementation.
      */
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
         if (RESULT_UPDATER.compareAndSet(this, null, CANCELLATION_CAUSE_HOLDER)) {
+            //唤醒调用 sync 的线程
             checkNotifyWaiters();
+            //触发监听器
             notifyListeners();
             return true;
         }

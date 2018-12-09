@@ -27,11 +27,17 @@ import static io.netty.util.internal.PriorityQueueNode.INDEX_NOT_IN_QUEUE;
  * A priority queue which uses natural ordering of elements. Elements are also required to be of type
  * {@link PriorityQueueNode} for the purpose of maintaining the index in the priority queue.
  * @param <T> The object that is maintained in the queue.
+ *
+ * netty自己封装的 优先队列 应该是为了能 使用PriorityIndex
  */
 public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends AbstractQueue<T>
                                                                      implements PriorityQueue<T> {
+
     private static final PriorityQueueNode[] EMPTY_ARRAY = new PriorityQueueNode[0];
     private final Comparator<T> comparator;
+    /**
+     * 没有用二叉堆实现优先队列吗  好像之前有个版本是二叉堆的 时间复杂度 不是 二叉堆有优势吗  应该是 自己完成封装了一个二叉堆
+     */
     private T[] queue;
     private int size;
 
@@ -51,12 +57,18 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         return size == 0;
     }
 
+    /**
+     * 判断是否包含指定元素
+     * @param o
+     * @return
+     */
     @Override
     public boolean contains(Object o) {
         if (!(o instanceof PriorityQueueNode)) {
             return false;
         }
         PriorityQueueNode node = (PriorityQueueNode) o;
+        //传入下标
         return contains(node, node.priorityQueueIndex(this));
     }
 
@@ -70,6 +82,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         for (int i = 0; i < size; ++i) {
             T node = queue[i];
             if (node != null) {
+                //清除 该节点 对于该优先队列的下标
                 node.priorityQueueIndex(this, INDEX_NOT_IN_QUEUE);
                 queue[i] = null;
             }
@@ -82,6 +95,11 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         size = 0;
     }
 
+    /**
+     * 添加任务
+     * @param e
+     * @return
+     */
     @Override
     public boolean offer(T e) {
         if (e.priorityQueueIndex(this) != INDEX_NOT_IN_QUEUE) {
@@ -98,6 +116,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
                                                          (queue.length >>> 1)));
         }
 
+        //应该就是对应二叉堆的上浮
         bubbleUp(size++, e);
         return true;
     }
@@ -108,11 +127,13 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
             return null;
         }
         T result = queue[0];
+        //一旦取出的任务 就要设置成 -1
         result.priorityQueueIndex(this, INDEX_NOT_IN_QUEUE);
 
         T last = queue[--size];
         queue[size] = null;
         if (size != 0) { // Make sure we don't add the last element back.
+            //下沉
             bubbleDown(0, last);
         }
 
@@ -136,6 +157,11 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         return removeTyped(node);
     }
 
+    /**
+     * 移除指定元素
+     * @param node
+     * @return
+     */
     @Override
     public boolean removeTyped(T node) {
         int i = node.priorityQueueIndex(this);
@@ -143,6 +169,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
             return false;
         }
 
+        //移除指定下标的元素
         node.priorityQueueIndex(this, INDEX_NOT_IN_QUEUE);
         if (--size == 0 || size == i) {
             // If there are no node left, or this is the last node in the array just remove and return.
@@ -156,6 +183,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         // priorityQueueIndex will be updated below in bubbleUp or bubbleDown
 
         // Make sure the moved node still preserves the min-heap properties.
+        //根据 大小决定 上浮还是下沉 应该都是 下沉把 毕竟取的是最后一个
         if (comparator.compare(node, moved) < 0) {
             bubbleDown(i, moved);
         } else {
@@ -164,6 +192,10 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         return true;
     }
 
+    /**
+     * 当修改优先级时 维持最小堆
+     * @param node An object which is in this queue and the priority may have changed.
+     */
     @Override
     public void priorityChanged(T node) {
         int i = node.priorityQueueIndex(this);
@@ -235,9 +267,17 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         }
     }
 
+    /**
+     *
+     * @param node
+     * @param i  下标
+     * @return
+     */
     private boolean contains(PriorityQueueNode node, int i) {
         return i >= 0 && i < size && node.equals(queue[i]);
     }
+
+    //下沉和 上浮
 
     private void bubbleDown(int k, T node) {
         final int half = size >>> 1;

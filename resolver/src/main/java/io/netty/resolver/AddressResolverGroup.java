@@ -31,6 +31,8 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Creates and manages {@link NameResolver}s so that each {@link EventExecutor} has its own resolver instance.
+ *
+ * 存放一组 对象和 线程执行器
  */
 @UnstableApi
 public abstract class AddressResolverGroup<T extends SocketAddress> implements Closeable {
@@ -50,6 +52,8 @@ public abstract class AddressResolverGroup<T extends SocketAddress> implements C
      * resolved found, this method creates and returns a new resolver instance created by
      * {@link #newResolver(EventExecutor)} so that the new resolver is reused on another
      * {@link #getResolver(EventExecutor)} call with the same {@link EventExecutor}.
+     *
+     * 从容器中找出 线程执行器对应的 地址
      */
     public AddressResolver<T> getResolver(final EventExecutor executor) {
         if (executor == null) {
@@ -72,6 +76,7 @@ public abstract class AddressResolverGroup<T extends SocketAddress> implements C
                 }
 
                 resolvers.put(executor, newResolver);
+                //增加终结时的 监听器 将 地址移除掉
                 executor.terminationFuture().addListener(new FutureListener<Object>() {
                     @Override
                     public void operationComplete(Future<Object> future) throws Exception {
@@ -96,6 +101,7 @@ public abstract class AddressResolverGroup<T extends SocketAddress> implements C
 
     /**
      * Closes all {@link NameResolver}s created by this group.
+     * 依次关闭所有AddressResolver
      */
     @Override
     @SuppressWarnings({ "unchecked", "SuspiciousToArrayCall" })

@@ -7,7 +7,7 @@ Please ensure to specify the following:
 * Simplest possible steps to reproduce
   * More complex the steps are, lower the priority will be.
   * A pull request with failing JUnit test case is most preferred, although it's OK to paste the test case into the issue description.
-* Anything that might be relevant in your opinion, such as:
+* Anything that might be relevant in your opin, such as:
   * JDK/JRE version or the output of `java -version`
   * Operating system and the output of `uname -a`
   * Network configuration

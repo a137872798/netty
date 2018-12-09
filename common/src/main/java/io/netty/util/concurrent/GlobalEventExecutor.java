@@ -34,7 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * task pending in the task queue for 1 second.  Please note it is not scalable to schedule large number of tasks to
  * this executor; use a dedicated executor.
  *
- * 一个全局的 事件执行器
+ * 一个全局的 事件执行器 不同于 eventLoop的实现 直接存放了 任务队列以及定时任务队列 因为Eventloop 必须于channel 绑定才能使用
+ * 某些不属于 channel的 任务全部丢到了这里 并且是一个单例对象
  */
 public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
 
@@ -60,18 +61,26 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
     final ThreadFactory threadFactory =
             new DefaultThreadFactory(DefaultThreadFactory.toPoolName(getClass()), false, Thread.NORM_PRIORITY, null);
     private final TaskRunner taskRunner = new TaskRunner();
+    /**
+     * 简化启动参数 不向eventloop
+     */
     private final AtomicBoolean started = new AtomicBoolean();
     volatile Thread thread;
 
+    /**
+     * 设置一个 失败对象
+     */
     private final Future<?> terminationFuture = new FailedFuture<Object>(this, new UnsupportedOperationException());
 
     private GlobalEventExecutor() {
+        //设置一个 不断执行的空任务
         scheduledTaskQueue().add(quietPeriodTask);
     }
 
     /**
      * Take the next {@link Runnable} from the task queue and so will block if no task is currently present.
      *
+     * 拉取任务
      * @return {@code null} if the executor thread has been interrupted or waken up.
      */
     Runnable takeTask() {
@@ -81,14 +90,17 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
             if (scheduledTask == null) {
                 Runnable task = null;
                 try {
+                    //如果没有 定时任务 就从阻塞任务中拉取
                     task = taskQueue.take();
                 } catch (InterruptedException e) {
                     // Ignore
                 }
                 return task;
             } else {
+                //存在定时任务的情况 判断是否到了执行时间
                 long delayNanos = scheduledTask.delayNanos();
                 Runnable task;
+                //还没到时间 就按照这个时间在阻塞队列中拉取任务
                 if (delayNanos > 0) {
                     try {
                         task = taskQueue.poll(delayNanos, TimeUnit.NANOSECONDS);
@@ -97,11 +109,14 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
                         return null;
                     }
                 } else {
+                    //直接拉取任务 看来普通队列的优先级比定时队列要高
                     task = taskQueue.poll();
                 }
 
                 if (task == null) {
+                    //从任务队列 移动到 普通队列
                     fetchFromScheduledTaskQueue();
+                    //取出存入的定时任务
                     task = taskQueue.poll();
                 }
 
@@ -112,6 +127,9 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
         }
     }
 
+    /**
+     * 从定时任务队列将元素移动到 普通队列
+     */
     private void fetchFromScheduledTaskQueue() {
         long nanoTime = AbstractScheduledEventExecutor.nanoTime();
         Runnable scheduledTask = pollScheduledTask(nanoTime);
@@ -204,6 +222,10 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
         return !thread.isAlive();
     }
 
+    /**
+     * 这个 机制也跟 eventLoop一样 必须在独占线程中才能执行
+     * @param task
+     */
     @Override
     public void execute(Runnable task) {
         if (task == null) {
@@ -216,8 +238,13 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
         }
     }
 
+    /**
+     * 尝试启动独占线程  每次重启都换了一个独占线程
+     */
     private void startThread() {
+        //已经启动就不用处理
         if (started.compareAndSet(false, true)) {
+            //创建线程的时候 设置了 taskRunner 也就是 start 的逻辑
             final Thread t = threadFactory.newThread(taskRunner);
             // Set to null to ensure we not create classloader leaks by holds a strong reference to the inherited
             // classloader.
@@ -236,14 +263,19 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
             // an assert error.
             // See https://github.com/netty/netty/issues/4357
             thread = t;
+            //执行run 方法
             t.start();
         }
     }
 
+    /**
+     * 独占线程中执行的逻辑  模板类似于 eventLoop  停止线程应该是避免无畏的 资源损耗 毕竟一直在 自旋
+     */
     final class TaskRunner implements Runnable {
         @Override
         public void run() {
             for (;;) {
+                //不断从任务队列中拉取任务并执行
                 Runnable task = takeTask();
                 if (task != null) {
                     try {
@@ -252,6 +284,7 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
                         logger.warn("Unexpected exception from the global event executor: ", t);
                     }
 
+                    //如果是空任务就跳过 这个任务是 为了什么
                     if (task != quietPeriodTask) {
                         continue;
                     }
@@ -259,10 +292,12 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
 
                 Queue<ScheduledFutureTask<?>> scheduledTaskQueue = GlobalEventExecutor.this.scheduledTaskQueue;
                 // Terminate if there is no task in the queue (except the noop task).
+                //这个 size = 1 就是 quietPeriodTask 任务
                 if (taskQueue.isEmpty() && (scheduledTaskQueue == null || scheduledTaskQueue.size() == 1)) {
                     // Mark the current thread as stopped.
                     // The following CAS must always success and must be uncontended,
                     // because only one thread should be running at the same time.
+                    //这里的 cas 一定会成功 因为这就是独占线程在执行
                     boolean stopped = started.compareAndSet(true, false);
                     assert stopped;
 
