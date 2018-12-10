@@ -560,6 +560,11 @@ public class ResourceLeakDetector<T> {
     private static final AtomicReference<String[]> excludedMethods =
             new AtomicReference<String[]>(EmptyArrays.EMPTY_STRINGS);
 
+    /**
+     * 增加独有
+     * @param clz
+     * @param methodNames
+     */
     public static void addExclusions(Class clz, String ... methodNames) {
         Set<String> nameSet = new HashSet<String>(Arrays.asList(methodNames));
         // Use loop rather than lookup. This avoids knowing the parameters, and doesn't have to handle
@@ -569,13 +574,18 @@ public class ResourceLeakDetector<T> {
                 break;
             }
         }
+        //这里是从 clz 对象的所有方法中 找到传入的 methodName 方法 并去除 这样做有什么意义吗 这就是一个查找吧 没找到就抛出异常
+        //不过 是用loop 替代 look up
         if (!nameSet.isEmpty()) {
             throw new IllegalArgumentException("Can't find '" + nameSet + "' in " + clz.getName());
         }
+        //旧方法 新方法
         String[] oldMethods;
         String[] newMethods;
         do {
+            //获取之前存放的 方法
             oldMethods = excludedMethods.get();
+            //这个东西 结果跟
             newMethods = Arrays.copyOf(oldMethods, oldMethods.length + 2 * methodNames.length);
             for (int i = 0; i < methodNames.length; i++) {
                 newMethods[oldMethods.length + i * 2] = clz.getName();

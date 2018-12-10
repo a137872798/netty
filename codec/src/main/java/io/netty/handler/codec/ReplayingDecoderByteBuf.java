@@ -34,6 +34,8 @@ import java.nio.charset.Charset;
 
 /**
  * Special {@link ByteBuf} implementation which is used by the {@link ReplayingDecoder}
+ *
+ * 当IO 阻塞时能实现 无阻塞进行解码的 对象
  */
 final class ReplayingDecoderByteBuf extends ByteBuf {
 

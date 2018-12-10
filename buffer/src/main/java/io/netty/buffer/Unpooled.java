@@ -660,6 +660,7 @@ public final class Unpooled {
      * {@code buffer}.
      *
      * @deprecated Use {@link ByteBuf#asReadOnly()}.
+     * 返回该对象的视图对象
      */
     @Deprecated
     public static ByteBuf unmodifiableBuffer(ByteBuf buffer) {

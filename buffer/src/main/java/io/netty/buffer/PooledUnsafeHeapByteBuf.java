@@ -19,6 +19,9 @@ import io.netty.util.Recycler;
 import io.netty.util.Recycler.Handle;
 import io.netty.util.internal.PlatformDependent;
 
+/**
+ * 池化的 由unsafe 创建的 heap 内存对象
+ */
 final class PooledUnsafeHeapByteBuf extends PooledHeapByteBuf {
 
     private static final Recycler<PooledUnsafeHeapByteBuf> RECYCLER = new Recycler<PooledUnsafeHeapByteBuf>() {
@@ -155,6 +158,7 @@ final class PooledUnsafeHeapByteBuf extends PooledHeapByteBuf {
     @Override
     @Deprecated
     protected SwappedByteBuf newSwappedByteBuf() {
+        //好像跟 unsafe 有关的 都有这个 对齐类
         if (PlatformDependent.isUnaligned()) {
             // Only use if unaligned access is supported otherwise there is no gain.
             return new UnsafeHeapSwappedByteBuf(this);

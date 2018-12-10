@@ -101,7 +101,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 非只读
+     * 是否只读
      * @return
      */
     @Override
@@ -447,23 +447,33 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
         final int maxCapacity = maxCapacity();
         final int writerIndex = writerIndex();
+        //超过了 最大扩容大小
         if (minWritableBytes > maxCapacity - writerIndex) {
+            //如果是 非 强制 或者 已经达到最大容量 返回1
             if (!force || capacity() == maxCapacity) {
                 return 1;
             }
 
+            //设置成最大 容量 返回3  这时 还是不能写入指定大小的
             capacity(maxCapacity);
             return 3;
         }
 
+        //扩容 重新设置大小
+
         // Normalize the current capacity to the power of 2.
         int newCapacity = alloc().calculateNewCapacity(writerIndex + minWritableBytes, maxCapacity);
 
-        // Adjust to the new capacity.
+        // Adjust to the new capacity.   2代表空间是足够的
         capacity(newCapacity);
         return 2;
     }
 
+    /**
+     * 交换字节顺序
+     * @param endianness
+     * @return
+     */
     @Override
     public ByteBuf order(ByteOrder endianness) {
         if (endianness == order()) {
@@ -477,6 +487,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     /**
      * Creates a new {@link SwappedByteBuf} for this {@link ByteBuf} instance.
+     * 返回一个 字节顺序相反的对象
      */
     protected SwappedByteBuf newSwappedByteBuf() {
         return new SwappedByteBuf(this);
@@ -636,6 +647,13 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 获取字节序列
+     * @param index
+     * @param length the length to read
+     * @param charset that should be used
+     * @return
+     */
     @Override
     public CharSequence getCharSequence(int index, int length, Charset charset) {
         if (CharsetUtil.US_ASCII.equals(charset) || CharsetUtil.ISO_8859_1.equals(charset)) {
@@ -1331,27 +1349,45 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return written;
     }
 
+    //上面都没看
+
     @Override
     public ByteBuf copy() {
         return copy(readerIndex, readableBytes());
     }
 
+    /**
+     * 生成一个 副本对象
+     * @return
+     */
     @Override
     public ByteBuf duplicate() {
         ensureAccessible();
         return new UnpooledDuplicatedByteBuf(this);
     }
 
+    /**
+     * 生成副本的 同时 增加引用计数
+     * @return
+     */
     @Override
     public ByteBuf retainedDuplicate() {
         return duplicate().retain();
     }
 
+    /**
+     * 生成 副本(分片)对象
+     * @return
+     */
     @Override
     public ByteBuf slice() {
         return slice(readerIndex, readableBytes());
     }
 
+    /**
+     * 创建分片对象的 同时 增加一个引用计数
+     * @return
+     */
     @Override
     public ByteBuf retainedSlice() {
         return slice().retain();
@@ -1368,6 +1404,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return slice(index, length).retain();
     }
 
+    /**
+     * 将该对象转化 成 nioBuffer 对象
+     * @return
+     */
     @Override
     public ByteBuffer nioBuffer() {
         return nioBuffer(readerIndex, readableBytes());
@@ -1543,6 +1583,13 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
     }
 
+    /**
+     * 检查目标index是否超出范围
+     * @param index
+     * @param length
+     * @param dstIndex
+     * @param dstCapacity
+     */
     protected final void checkDstIndex(int index, int length, int dstIndex, int dstCapacity) {
         checkIndex(index, length);
         if (checkBounds) {

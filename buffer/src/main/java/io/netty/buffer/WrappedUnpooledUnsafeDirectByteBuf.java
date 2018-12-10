@@ -19,14 +19,25 @@ import io.netty.util.internal.PlatformDependent;
 
 import java.nio.ByteBuffer;
 
+/**
+ * 非池化 非unsafe 直接内存的包装对象
+ */
 final class WrappedUnpooledUnsafeDirectByteBuf extends UnpooledUnsafeDirectByteBuf {
 
+    /**
+     * 根据给定的 内存地址 使用 directBuffer 的 构造器对象 直接创建directBytebuffer 对象 这样不会有问题吗???
+     * @param alloc
+     * @param memoryAddress
+     * @param size
+     * @param doFree
+     */
     WrappedUnpooledUnsafeDirectByteBuf(ByteBufAllocator alloc, long memoryAddress, int size, boolean doFree) {
         super(alloc, PlatformDependent.directBuffer(memoryAddress, size), size, doFree);
     }
 
     @Override
     protected void freeDirect(ByteBuffer buffer) {
+        //使用unsafe 进行内存释放 而不是使用clean
         PlatformDependent.freeMemory(memoryAddress);
     }
 }

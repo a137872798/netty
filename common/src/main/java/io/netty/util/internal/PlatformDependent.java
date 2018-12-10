@@ -171,6 +171,7 @@ public final class PlatformDependent {
             if (javaVersion() >= 9) {
                 CLEANER = CleanerJava9.isSupported() ? new CleanerJava9() : NOOP;
             } else {
+                //反射拿了这个 cleaner 对象
                 CLEANER = CleanerJava6.isSupported() ? new CleanerJava6() : NOOP;
             }
         } else {
@@ -387,6 +388,7 @@ public final class PlatformDependent {
     /**
      * Try to deallocate the specified direct {@link ByteBuffer}. Please note this method does nothing if
      * the current platform does not support this operation or the specified buffer is not a direct buffer.
+     * 使用cleaner 进行 直接内存的 释放
      */
     public static void freeDirectBuffer(ByteBuffer buffer) {
         CLEANER.freeDirectBuffer(buffer);

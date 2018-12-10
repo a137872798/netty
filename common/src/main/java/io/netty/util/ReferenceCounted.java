@@ -28,20 +28,27 @@ package io.netty.util;
  * {@link ReferenceCounted}, the contained objects will also be released via {@link #release()} when the container's
  * reference count becomes 0.
  * </p>
+ *
+ * bytebuf 的 引用计数接口  用来实现内存管理
  */
 public interface ReferenceCounted {
     /**
      * Returns the reference count of this object.  If {@code 0}, it means this object has been deallocated.
+     *
+     * 返回当前引用计数
      */
     int refCnt();
 
     /**
      * Increases the reference count by {@code 1}.
+     *
+     * 增加引用计数
      */
     ReferenceCounted retain();
 
     /**
      * Increases the reference count by the specified {@code increment}.
+     * 增加指定次数
      */
     ReferenceCounted retain(int increment);
 
@@ -49,6 +56,8 @@ public interface ReferenceCounted {
      * Records the current access location of this object for debugging purposes.
      * If this object is determined to be leaked, the information recorded by this operation will be provided to you
      * via {@link ResourceLeakDetector}.  This method is a shortcut to {@link #touch(Object) touch(null)}.
+     *
+     * 记录当前信息到 ResourceLeadDetector
      */
     ReferenceCounted touch();
 

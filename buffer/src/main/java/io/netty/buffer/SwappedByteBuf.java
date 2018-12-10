@@ -32,11 +32,19 @@ import java.nio.charset.Charset;
  *
  * @deprecated use the Little Endian accessors, e.g. {@code getShortLE}, {@code getIntLE}
  * instead.
+ *
+ * 生成一个将buf 对象的字节顺序交换后的对象
  */
 @Deprecated
 public class SwappedByteBuf extends ByteBuf {
 
+    /**
+     * 原生对象  基本都是委托给这个对象
+     */
     private final ByteBuf buf;
+    /**
+     * 字节顺序
+     */
     private final ByteOrder order;
 
     public SwappedByteBuf(ByteBuf buf) {

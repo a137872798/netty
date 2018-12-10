@@ -20,6 +20,8 @@ import io.netty.util.internal.PlatformDependent;
 
 /**
  * Special {@link SwappedByteBuf} for {@link ByteBuf}s that are backed by a {@code memoryAddress}.
+ *
+ * 这个是 专门针对 unsafe 创建的 swapped 对象
  */
 final class UnsafeDirectSwappedByteBuf extends AbstractUnsafeSwappedByteBuf {
 

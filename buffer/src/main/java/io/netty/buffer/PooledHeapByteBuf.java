@@ -26,8 +26,14 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 
+/**
+ * 创建在 heap 上的 bytebuf 对象
+ */
 class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
 
+    /**
+     * recycle 对象
+     */
     private static final Recycler<PooledHeapByteBuf> RECYCLER = new Recycler<PooledHeapByteBuf>() {
         @Override
         protected PooledHeapByteBuf newObject(Handle<PooledHeapByteBuf> handle) {
@@ -37,6 +43,7 @@ class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
 
     static PooledHeapByteBuf newInstance(int maxCapacity) {
         PooledHeapByteBuf buf = RECYCLER.get();
+        //获取 回收对象时 初始化属性
         buf.reuse(maxCapacity);
         return buf;
     }
@@ -45,10 +52,16 @@ class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
         super(recyclerHandle, maxCapacity);
     }
 
+    /**
+     * 因为是 创建在 heap 上所以不是 direct
+     * @return
+     */
     @Override
     public final boolean isDirect() {
         return false;
     }
+
+    //就是操作数组下标  估计 非 unsafe 的 offset 为 0 这样idx 就是 返回index 原值
 
     @Override
     protected byte _getByte(int index) {
@@ -95,11 +108,23 @@ class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
         return HeapByteBufUtil.getLongLE(memory, idx(index));
     }
 
+    /**
+     * 将数据读取到 指定容器
+     * @param index
+     * @param dst
+     * @param dstIndex the first index of the destination
+     * @param length   the number of bytes to transfer
+     *
+     * @return
+     */
     @Override
     public final ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
         checkDstIndex(index, length, dstIndex, dst.capacity());
+        //如果该对象 存在 memoryAddress 就代表是 unsafe 创建的 对象
         if (dst.hasMemoryAddress()) {
+            //操纵 unsafe 对象写入数据
             PlatformDependent.copyMemory(memory, idx(index), dst.memoryAddress() + dstIndex, length);
+            //代表是 byte[]
         } else if (dst.hasArray()) {
             getBytes(index, dst.array(), dst.arrayOffset() + dstIndex, length);
         } else {
@@ -275,9 +300,16 @@ class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
         }
     }
 
+    /**
+     * 创建副本对象
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public final ByteBuf copy(int index, int length) {
         checkIndex(index, length);
+        //创建 heap 对象
         ByteBuf copy = alloc().heapBuffer(length, maxCapacity());
         copy.writeBytes(memory, idx(index), length);
         return copy;
@@ -293,14 +325,27 @@ class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
         return new ByteBuffer[] { nioBuffer(index, length) };
     }
 
+    /**
+     * 将 bytebuf 中的 内存 对象 (byte[]) 用 Nio bytebuffer 对象包装起来
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public final ByteBuffer nioBuffer(int index, int length) {
         checkIndex(index, length);
         index = idx(index);
+        //将内存块的 指定长度 包装
         ByteBuffer buf =  ByteBuffer.wrap(memory, index, length);
         return buf.slice();
     }
 
+    /**
+     * 生成临时对象
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public final ByteBuffer internalNioBuffer(int index, int length) {
         checkIndex(index, length);

@@ -34,10 +34,18 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * Big endian Java heap buffer implementation. It is recommended to use
  * {@link UnpooledByteBufAllocator#heapBuffer(int, int)}, {@link Unpooled#buffer(int)} and
  * {@link Unpooled#wrappedBuffer(byte[])} instead of calling the constructor explicitly.
+ *
+ * 非池化 heap 对象
  */
 public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
 
+    /**
+     * 内存分配器
+     */
     private final ByteBufAllocator alloc;
+    /**
+     * 内存数组
+     */
     byte[] array;
     private ByteBuffer tmpNioBuf;
 
@@ -88,6 +96,10 @@ public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
         return new byte[initialCapacity];
     }
 
+    /**
+     * 因为 heap 内存被gc回收 所以是 NOOP
+     * @param array
+     */
     protected void freeArray(byte[] array) {
         // NOOP
     }
@@ -551,6 +563,7 @@ public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
 
     @Override
     protected void deallocate() {
+        //针对 heap 内存的 释放 方式
         freeArray(array);
         array = EmptyArrays.EMPTY_BYTES;
     }

@@ -33,16 +33,27 @@ import java.nio.charset.Charset;
 
 /**
  * An empty {@link ByteBuf} whose capacity and maximum capacity are all {@code 0}.
+ * 一个空的 bytebuf 对象
  */
 public final class EmptyByteBuf extends ByteBuf {
 
+    /**
+     * 该对象的 hashCode 值
+     */
     static final int EMPTY_BYTE_BUF_HASH_CODE = 1;
+    /**
+     * 一个空 的 niobuffer对象
+     */
     private static final ByteBuffer EMPTY_BYTE_BUFFER = ByteBuffer.allocateDirect(0);
+    /**
+     * 空bytebuffer 的 地址  为什么会有这个东西
+     */
     private static final long EMPTY_BYTE_BUFFER_ADDRESS;
 
     static {
         long emptyByteBufferAddress = 0;
         try {
+            //如果支持 unsafe 就使用那个对象 获取 内存地址
             if (PlatformDependent.hasUnsafe()) {
                 emptyByteBufferAddress = PlatformDependent.directBufferAddress(EMPTY_BYTE_BUFFER);
             }
@@ -52,9 +63,18 @@ public final class EmptyByteBuf extends ByteBuf {
         EMPTY_BYTE_BUFFER_ADDRESS = emptyByteBufferAddress;
     }
 
+    /**
+     * 对应到 netty 的 bytebuf 分配器
+     */
     private final ByteBufAllocator alloc;
+    /**
+     * 字节顺序
+     */
     private final ByteOrder order;
     private final String str;
+    /**
+     * 相反字节顺序的 bytebuf 对象
+     */
     private EmptyByteBuf swapped;
 
     public EmptyByteBuf(ByteBufAllocator alloc) {
@@ -116,6 +136,11 @@ public final class EmptyByteBuf extends ByteBuf {
         return 0;
     }
 
+    /**
+     * 根据字节顺序 返回对应的bytebuf 对象 这个字节顺序 难道机器能自动识别???
+     * @param endianness
+     * @return
+     */
     @Override
     public ByteBuf order(ByteOrder endianness) {
         if (endianness == null) {

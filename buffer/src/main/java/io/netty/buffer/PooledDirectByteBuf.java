@@ -27,8 +27,14 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 
+/**
+ * 池化直接内存bytebuf  使用的T 为 JDK bytebuffer 对象
+ */
 final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
 
+    /**
+     * 对应的 recyle对象
+     */
     private static final Recycler<PooledDirectByteBuf> RECYCLER = new Recycler<PooledDirectByteBuf>() {
         @Override
         protected PooledDirectByteBuf newObject(Handle<PooledDirectByteBuf> handle) {
@@ -36,6 +42,11 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         }
     };
 
+    /**
+     * 从 recycle中获取 对象 并开始 重置属性(reuse)
+     * @param maxCapacity
+     * @return
+     */
     static PooledDirectByteBuf newInstance(int maxCapacity) {
         PooledDirectByteBuf buf = RECYCLER.get();
         buf.reuse(maxCapacity);
@@ -46,16 +57,30 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         super(recyclerHandle, maxCapacity);
     }
 
+    /**
+     * 对应到 父类的 创建临时对象
+     * @param memory
+     * @return
+     */
     @Override
     protected ByteBuffer newInternalNioBuffer(ByteBuffer memory) {
         return memory.duplicate();
     }
 
+    /**
+     * 是否是 直接内存
+     * @return
+     */
     @Override
     public boolean isDirect() {
         return true;
     }
 
+    /**
+     * 因为是对外内存 所以要获取 下标 需要借助 offset
+     * @param index
+     * @return
+     */
     @Override
     protected byte _getByte(int index) {
         return memory.get(idx(index));
@@ -107,14 +132,26 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         return ByteBufUtil.swapLong(_getLong(index));
     }
 
+    /**
+     * 获取bytes
+     * @param index
+     * @param dst
+     * @param dstIndex the first index of the destination
+     * @param length   the number of bytes to transfer
+     *
+     * @return
+     */
     @Override
     public ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
+        //检验传入的 下标是否 合法
         checkDstIndex(index, length, dstIndex, dst.capacity());
+        //判断 目标 buf 是否是 byte[]
         if (dst.hasArray()) {
             getBytes(index, dst.array(), dst.arrayOffset() + dstIndex, length);
         } else if (dst.nioBufferCount() > 0) {
             for (ByteBuffer bb: dst.nioBuffers(dstIndex, length)) {
                 int bbLen = bb.remaining();
+                //将数据 读取到 bb 中
                 getBytes(index, bb);
                 index += bbLen;
             }
@@ -130,16 +167,28 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         return this;
     }
 
+    /**
+     * 将数据 读取到 dst中
+     * @param index
+     * @param dst
+     * @param dstIndex
+     * @param length
+     * @param internal
+     */
     private void getBytes(int index, byte[] dst, int dstIndex, int length, boolean internal) {
         checkDstIndex(index, length, dstIndex, dst.length);
         ByteBuffer tmpBuf;
+        //是否使用临时 nioBuffer对象
         if (internal) {
             tmpBuf = internalNioBuffer();
         } else {
             tmpBuf = memory.duplicate();
         }
+        //计算真实下标
         index = idx(index);
+        //设置 指针
         tmpBuf.clear().position(index).limit(index + length);
+        //将数据 读到 dst 中
         tmpBuf.get(dst, dstIndex, length);
     }
 
@@ -388,9 +437,16 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         }
     }
 
+    /**
+     * 创建 一个 副本对象
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public ByteBuf copy(int index, int length) {
         checkIndex(index, length);
+        //分配一个 新的 bytebuf 对象
         ByteBuf copy = alloc().directBuffer(length, maxCapacity());
         copy.writeBytes(this, index, length);
         return copy;
@@ -401,6 +457,12 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         return 1;
     }
 
+    /**
+     * 创建 分片对象
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public ByteBuffer nioBuffer(int index, int length) {
         checkIndex(index, length);
@@ -435,6 +497,10 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         throw new UnsupportedOperationException("direct buffer");
     }
 
+    /**
+     * 这样代表 该 bytbuf 不是 由 unsafe 创建的
+     * @return
+     */
     @Override
     public boolean hasMemoryAddress() {
         return false;

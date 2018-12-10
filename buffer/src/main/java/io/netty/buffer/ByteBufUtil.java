@@ -62,6 +62,9 @@ public final class ByteBufUtil {
 
     private static final byte WRITE_UTF_UNKNOWN = (byte) '?';
     private static final int MAX_CHAR_BUFFER_SIZE;
+    /**
+     * 本地线程变量 允许存放的 bytebuffer 大小
+     */
     private static final int THREAD_LOCAL_BUFFER_SIZE;
     private static final int MAX_BYTES_PER_CHAR_UTF8 =
             (int) CharsetUtil.encoder(CharsetUtil.UTF_8).maxBytesPerChar();
@@ -799,16 +802,16 @@ public final class ByteBufUtil {
     /**
      * Returns a cached thread-local direct buffer, if available.
      *
-     * 如果可以的话 分配一个在本地线程中缓存的 directbytebuf 对象
+     * 如果可以的话 分配一个在本地线程中缓存的 directbytebuf 对象   因为直接创建 direct内存成本比较高
      * @return a cached thread-local direct buffer, if available.  {@code null} otherwise.
      */
     public static ByteBuf threadLocalDirectBuffer() {
-        //本地缓存的 bytebuf 为 0
+        //本地线程变量 不允许
         if (THREAD_LOCAL_BUFFER_SIZE <= 0) {
             return null;
         }
 
-        //是否支持使用JDK unsafe 对象进行分配
+        //是否支持使用JDK unsafe 对象进行分配  这里还是使用 recycle 进行对象创建
         if (PlatformDependent.hasUnsafe()) {
             return ThreadLocalUnsafeDirectByteBuf.newInstance();
         } else {
@@ -1133,6 +1136,9 @@ public final class ByteBufUtil {
         }
     }
 
+    /**
+     * 对应到 非池化的 unsafe 直接内存对象
+     */
     static final class ThreadLocalUnsafeDirectByteBuf extends UnpooledUnsafeDirectByteBuf {
 
         private static final Recycler<ThreadLocalUnsafeDirectByteBuf> RECYCLER =
@@ -1158,15 +1164,20 @@ public final class ByteBufUtil {
 
         @Override
         protected void deallocate() {
+            //如果超过了 本地线程变量 允许缓存的数据 就释放
             if (capacity() > THREAD_LOCAL_BUFFER_SIZE) {
                 super.deallocate();
             } else {
+                //否则 不释放直接内存 而是被 recycle 回收
                 clear();
                 handle.recycle(this);
             }
         }
     }
 
+    /**
+     * 对应到 非池化 非 unsafe 的直接内存对象生成器  因为直接创建 对象成本比较高
+     */
     static final class ThreadLocalDirectByteBuf extends UnpooledDirectByteBuf {
 
         private static final Recycler<ThreadLocalDirectByteBuf> RECYCLER = new Recycler<ThreadLocalDirectByteBuf>() {

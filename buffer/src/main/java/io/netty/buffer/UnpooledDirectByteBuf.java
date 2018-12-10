@@ -31,12 +31,23 @@ import java.nio.channels.ScatteringByteChannel;
  * A NIO {@link ByteBuffer} based buffer. It is recommended to use
  * {@link UnpooledByteBufAllocator#directBuffer(int, int)}, {@link Unpooled#directBuffer(int)} and
  * {@link Unpooled#wrappedBuffer(ByteBuffer)} instead of calling the constructor explicitly.
+ *
+ * unpooled 就是没有使用 recycle 对象
  */
 public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
+    /**
+     * buf 分配器
+     */
     private final ByteBufAllocator alloc;
 
+    /**
+     * nioBytebuffer 对象
+     */
     private ByteBuffer buffer;
+    /**
+     * 临时对象
+     */
     private ByteBuffer tmpNioBuf;
     private int capacity;
     private boolean doNotFree;
@@ -94,7 +105,9 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
         }
 
         this.alloc = alloc;
+        //因为是使用外部传过来的 bytebuffer 对象 所以该对象的释放 由外部类 执行
         doNotFree = true;
+        //生成新的 bytebuffer 对象并设置到成员变量中
         setByteBuffer(initialBuffer.slice().order(ByteOrder.BIG_ENDIAN));
         writerIndex(initialCapacity);
     }
@@ -108,17 +121,24 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
     /**
      * Free a direct {@link ByteBuffer}
+     * 这个好像是 释放直接内存的
      */
     protected void freeDirect(ByteBuffer buffer) {
         PlatformDependent.freeDirectBuffer(buffer);
     }
 
+    /**
+     * 将数据 写入到 给定的 bytebuffer对象
+     * @param buffer
+     */
     private void setByteBuffer(ByteBuffer buffer) {
         ByteBuffer oldBuffer = this.buffer;
         if (oldBuffer != null) {
             if (doNotFree) {
+                //标记成 需要 释放
                 doNotFree = false;
             } else {
+                //需要释放的情况 释放旧的  bytebuffer 对象
                 freeDirect(oldBuffer);
             }
         }
@@ -640,6 +660,9 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
         return ((ByteBuffer) buffer.duplicate().position(index).limit(index + length)).slice();
     }
 
+    /**
+     * 这里释放 内存 需要使用 freeDirect
+     */
     @Override
     protected void deallocate() {
         ByteBuffer buffer = this.buffer;

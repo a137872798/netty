@@ -25,9 +25,13 @@ import static io.netty.util.internal.ObjectUtil.checkPositive;
 
 /**
  * Abstract base class for {@link ByteBuf} implementations that count references.
+ * 实现了 bytebuf 的引用计数功能
  */
 public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
     private static final long REFCNT_FIELD_OFFSET;
+    /**
+     * 全局 的 integer 更新器 这样就可以不用为 每个int 对象都 修改成 AtomicInteger
+     */
     private static final AtomicIntegerFieldUpdater<AbstractReferenceCountedByteBuf> refCntUpdater =
             AtomicIntegerFieldUpdater.newUpdater(AbstractReferenceCountedByteBuf.class, "refCnt");
 
@@ -46,6 +50,7 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
             refCntFieldOffset = -1;
         }
 
+        //找到refCnt 的内存地址偏移量
         REFCNT_FIELD_OFFSET = refCntFieldOffset;
     }
 
