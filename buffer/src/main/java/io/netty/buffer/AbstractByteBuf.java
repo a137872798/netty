@@ -41,6 +41,8 @@ import static io.netty.util.internal.MathUtil.isOutOfBounds;
 
 /**
  * A skeletal implementation of a buffer.
+ *
+ * bytebuf 的 骨架类
  */
 public abstract class AbstractByteBuf extends ByteBuf {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractByteBuf.class);
@@ -48,6 +50,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
     private static final String PROP_CHECK_ACCESSIBLE = "io.netty.buffer.checkAccessible";
     static final boolean checkAccessible; // accessed from CompositeByteBuf
     private static final String PROP_CHECK_BOUNDS = "io.netty.buffer.checkBounds";
+
+    /**
+     * 在设置指针的时候是否需要判断范围
+     */
     private static final boolean checkBounds;
 
     static {
@@ -66,10 +72,25 @@ public abstract class AbstractByteBuf extends ByteBuf {
     static final ResourceLeakDetector<ByteBuf> leakDetector =
             ResourceLeakDetectorFactory.instance().newResourceLeakDetector(ByteBuf.class);
 
+    /**
+     * 读指针
+     */
     int readerIndex;
+    /**
+     * 写指针
+     */
     int writerIndex;
+    /**
+     * 标记的读指针
+     */
     private int markedReaderIndex;
+    /**
+     * 标记的写指针
+     */
     private int markedWriterIndex;
+    /**
+     * 最大容量
+     */
     private int maxCapacity;
 
     protected AbstractByteBuf(int maxCapacity) {
@@ -79,6 +100,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
         this.maxCapacity = maxCapacity;
     }
 
+    /**
+     * 非只读
+     * @return
+     */
     @Override
     public boolean isReadOnly() {
         return false;
@@ -88,8 +113,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
     @Override
     public ByteBuf asReadOnly() {
         if (isReadOnly()) {
+            //否则返回原对象
             return this;
         }
+        //这里返回视图
         return Unpooled.unmodifiableBuffer(this);
     }
 
@@ -98,6 +125,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return maxCapacity;
     }
 
+    /**
+     * 设置最大容量
+     * @param maxCapacity
+     */
     protected final void maxCapacity(int maxCapacity) {
         this.maxCapacity = maxCapacity;
     }
@@ -107,6 +138,12 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return readerIndex;
     }
 
+    /**
+     * 判断数据是否超出范围
+     * @param readerIndex
+     * @param writerIndex
+     * @param capacity
+     */
     private static void checkIndexBounds(final int readerIndex, final int writerIndex, final int capacity) {
         if (readerIndex < 0 || readerIndex > writerIndex || writerIndex > capacity) {
             throw new IndexOutOfBoundsException(String.format(
@@ -115,8 +152,14 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
     }
 
+    /**
+     * 设置读指针
+     * @param readerIndex
+     * @return
+     */
     @Override
     public ByteBuf readerIndex(int readerIndex) {
+        //是否需要判断
         if (checkBounds) {
             checkIndexBounds(readerIndex, writerIndex, capacity());
         }
@@ -138,6 +181,12 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 同时设置读写指针
+     * @param readerIndex
+     * @param writerIndex
+     * @return
+     */
     @Override
     public ByteBuf setIndex(int readerIndex, int writerIndex) {
         if (checkBounds) {
@@ -147,42 +196,76 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 重置指针
+     * @return
+     */
     @Override
     public ByteBuf clear() {
         readerIndex = writerIndex = 0;
         return this;
     }
 
+    /**
+     * 判断是否还有可读取的数据
+     * @return
+     */
     @Override
     public boolean isReadable() {
         return writerIndex > readerIndex;
     }
 
+    /**
+     * 判断是否还能够读取指定的大小
+     * @param numBytes
+     * @return
+     */
     @Override
     public boolean isReadable(int numBytes) {
         return writerIndex - readerIndex >= numBytes;
     }
 
+    /**
+     * 判断是否还能写入数据
+     * @return
+     */
     @Override
     public boolean isWritable() {
         return capacity() > writerIndex;
     }
 
+    /**
+     * 是否能写入指定的大小
+     * @param numBytes
+     * @return
+     */
     @Override
     public boolean isWritable(int numBytes) {
         return capacity() - writerIndex >= numBytes;
     }
 
+    /**
+     * 还能读取多少数据
+     * @return
+     */
     @Override
     public int readableBytes() {
         return writerIndex - readerIndex;
     }
 
+    /**
+     * 还能写入多少数据
+     * @return
+     */
     @Override
     public int writableBytes() {
         return capacity() - writerIndex;
     }
 
+    /**
+     * 能写入的最大数据 这里是 跟 MaxCapacity 做比较
+     * @return
+     */
     @Override
     public int maxWritableBytes() {
         return maxCapacity() - writerIndex;
@@ -212,25 +295,41 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 丢弃 已读的数据
+     * @return
+     */
     @Override
     public ByteBuf discardReadBytes() {
+        //这里判断 引用计数是否为0 是就抛出异常
         ensureAccessible();
+        //如果当前读指针就是0 直接返回
         if (readerIndex == 0) {
             return this;
         }
 
+        //当读指针不同于写指针
         if (readerIndex != writerIndex) {
+            //这里 并没有删除之前的数据 而是 覆盖对应位置的数据
             setBytes(0, this, readerIndex, writerIndex - readerIndex);
+            //写指针位置改变
             writerIndex -= readerIndex;
+            //传入参数代表 指针变动量
             adjustMarkers(readerIndex);
             readerIndex = 0;
         } else {
+            //重置标记的位置
             adjustMarkers(readerIndex);
+            //读写指针相同 都重置为0
             writerIndex = readerIndex = 0;
         }
         return this;
     }
 
+    /**
+     * 这个是 丢弃多少数据???
+     * @return
+     */
     @Override
     public ByteBuf discardSomeReadBytes() {
         ensureAccessible();
@@ -238,12 +337,14 @@ public abstract class AbstractByteBuf extends ByteBuf {
             return this;
         }
 
+        //如果等大 就 直接 清空
         if (readerIndex == writerIndex) {
             adjustMarkers(readerIndex);
             writerIndex = readerIndex = 0;
             return this;
         }
 
+        //如果大于 1/2 的容量 就会丢弃
         if (readerIndex >= capacity() >>> 1) {
             setBytes(0, this, readerIndex, writerIndex - readerIndex);
             writerIndex -= readerIndex;
@@ -253,9 +354,15 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 当丢弃部分数据后 需要重新设置 mark的位置
+     * @param decrement 传入参数代表 指针变动量
+     */
     protected final void adjustMarkers(int decrement) {
+        //获取当前的 mark 位置
         int markedReaderIndex = this.markedReaderIndex;
         if (markedReaderIndex <= decrement) {
+            //小于给定的值 直接重置为0
             this.markedReaderIndex = 0;
             int markedWriterIndex = this.markedWriterIndex;
             if (markedWriterIndex <= decrement) {
@@ -269,6 +376,12 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
     }
 
+    /**
+     * 确保是否能写入 这么多数据
+     * @param minWritableBytes
+     *        the expected minimum number of writable bytes
+     * @return
+     */
     @Override
     public ByteBuf ensureWritable(int minWritableBytes) {
         if (minWritableBytes < 0) {
@@ -279,11 +392,17 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return this;
     }
 
+    /**
+     * 确保能否写入这么多数据
+     * @param minWritableBytes
+     */
     final void ensureWritable0(int minWritableBytes) {
         ensureAccessible();
+        //小于 capacity - writeIndex
         if (minWritableBytes <= writableBytes()) {
             return;
         }
+        //判断是否超过了 MaxCapacity
         if (checkBounds) {
             if (minWritableBytes > maxCapacity - writerIndex) {
                 throw new IndexOutOfBoundsException(String.format(
@@ -293,12 +412,26 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
 
         // Normalize the current capacity to the power of 2.
+        // 获取一个新的 capacity
         int newCapacity = alloc().calculateNewCapacity(writerIndex + minWritableBytes, maxCapacity);
 
         // Adjust to the new capacity.
+        // 重置容量
         capacity(newCapacity);
     }
 
+    /**
+     * 确保是否能写入
+     * @param minWritableBytes
+     *        the expected minimum number of writable bytes
+     * @param force
+     *        When {@link #writerIndex()} + {@code minWritableBytes} &gt; {@link #maxCapacity()}:
+     *        <ul>
+     *        <li>{@code true} - the capacity of the buffer is expanded to {@link #maxCapacity()}</li>
+     *        <li>{@code false} - the capacity of the buffer is unchanged</li>
+     *        </ul>
+     * @return
+     */
     @Override
     public int ensureWritable(int minWritableBytes, boolean force) {
         ensureAccessible();
@@ -307,6 +440,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
                     "minWritableBytes: %d (expected: >= 0)", minWritableBytes));
         }
 
+        //能够正常写入 返回0
         if (minWritableBytes <= writableBytes()) {
             return 0;
         }
@@ -1467,6 +1601,11 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return refCnt();
     }
 
+    /**
+     * 同时设置读写指针
+     * @param readerIndex
+     * @param writerIndex
+     */
     final void setIndex0(int readerIndex, int writerIndex) {
         this.readerIndex = readerIndex;
         this.writerIndex = writerIndex;

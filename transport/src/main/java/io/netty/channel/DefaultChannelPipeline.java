@@ -1180,6 +1180,10 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
+    /**
+     * 触发修改水位
+     * @return
+     */
     @Override
     public final ChannelPipeline fireChannelWritabilityChanged() {
         AbstractChannelHandlerContext.invokeChannelWritabilityChanged(head);
@@ -1728,6 +1732,11 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             ctx.fireUserEventTriggered(evt);
         }
 
+        /**
+         * head 节点不做处理 直接传递
+         * @param ctx
+         * @throws Exception
+         */
         @Override
         public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
             ctx.fireChannelWritabilityChanged();

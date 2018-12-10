@@ -155,6 +155,8 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
     /**
      * 对应 ServerSocketChannel 的 flush 操作 一般读写都是通过 SocketChannel 来 写数据的 这个 应该跟 flush 关系不大吧
+     *
+     * 这个好像不是 NioServerSocketChannel 用的 因为 doWriteMessage NioServerSocketChannel 实现是 UNSUPPORTOPERATION
      * @param in
      * @throws Exception
      */
@@ -165,6 +167,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
 
         for (;;) {
             Object msg = in.current();
+            //无数据可写就 取消OP_WRITE
             if (msg == null) {
                 // Wrote all messages.
                 if ((interestOps & SelectionKey.OP_WRITE) != 0) {

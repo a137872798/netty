@@ -695,6 +695,10 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             safeSetSuccess(promise);
         }
 
+        /**
+         * disconnect 触发
+         * @param promise
+         */
         @Override
         public final void disconnect(final ChannelPromise promise) {
             assertEventLoop();
@@ -862,15 +866,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             //置空了 之前的数据都会被gc 回收
             this.outboundBuffer = null; // Disallow adding any messages and flushes to outboundBuffer.
-            //这里只针对 client Channel  因为 server Channel 会 返回null
+            //这里看是否设置了 SoLonger 属性 设置了 就会先取消client的 注册 并返回一个 全局线程池对象
             Executor closeExecutor = prepareToClose();
-            //代表是client 这里 还将 channel 注销  并且 关闭了selectionKey  那server 不注销了吗
             if (closeExecutor != null) {
+                //在额外线程池中进行 socket 的 关闭 因为 设置了 SoLonger 会阻塞当前线程
                 closeExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
                         try {
                             // Execute the close.
+                            // 核心逻辑就是 关闭socket 对象
                             doClose0(promise);
                         } finally {
                             // Call invokeLater so closeAndDeregister is executed in the EventLoop again!
@@ -891,10 +896,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     }
                 });
             } else {
-                //这里是 server 还没有注销啊
+                //这里代表 没有设置 SoLonger  也就是 socket.close() 会立即返回结果
                 try {
                     // Close the channel and fail the queued messages in all cases.
-                    //serverchannel 只是直接关闭了 在degister中又进行了 注销 selectionKey 的动作 这样顺序不会出问题吗
                     doClose0(promise);
                 } finally {
                     //这里存放了 最后的数据进行 写入和 关闭
@@ -904,7 +908,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         outboundBuffer.close(closeCause);
                     }
                 }
-                //如果还在刷盘中 等待完成 后 才 激活 inactive 方法
+                //如果还在刷盘中 等待完成 后 才 激活 inactive 方法 这里会触发 注销
                 if (inFlush0) {
                     invokeLater(new Runnable() {
                         @Override
@@ -926,7 +930,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             try {
                 //这里 client 和 server 应该是不同的 因为 server 还没有进行注销 但是 server 只是将JDK channel 关闭没有做别的事
                 doClose();
-                //设置已关闭 也就是 针对CloseFuture.trySuccess
+                //设置已关闭 也就是 针对CloseFuture.trySuccess 这个对象就是对应到 client.closeFuture().sync() 阻塞主线程监听客户端关闭
                 closeFuture.setClosed();
                 //将promise 设置成 success
                 safeSetSuccess(promise);
@@ -945,7 +949,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
 
         /**
-         * 暴力关闭 也就是不将缓冲区的数据写出就退出
+         * 暴力关闭 没有触发 pipeline 上的事件
          */
         @Override
         public final void closeForcibly() {
@@ -1046,7 +1050,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
 
         /**
-         * 写入数据的核心逻辑
+         * 写入数据的核心逻辑  这里是 怎么保证write 的数据是 bytebuf 类型的???
          * @param msg
          * @param promise
          */
@@ -1107,7 +1111,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
 
         /**
-         * unsafe 的 flush 会转发到这里
+         * unsafe 的 flush 会转发到这里   NioChannel 对这个方法重写了 增加了对 OP_WRITE事件的判断 如果注册了就是 TCP
+         * 缓冲区写满了 那需要等待 写事件 准备完 才能开始写入
+         * 当下次准备好 OP_WRITE  后会进行强制 刷盘
          */
         @SuppressWarnings("deprecation")
         protected void flush0() {
@@ -1130,7 +1136,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             //如果 连接已经中断了
             if (!isActive()) {
                 try {
-                    //写出不同的异常
+                    //写出不同的异常 这些都是配合用户自定义事件做处理的
                     if (isOpen()) {
                         outboundBuffer.failFlushed(FLUSH0_NOT_YET_CONNECTED_EXCEPTION, true);
                     } else {
@@ -1145,7 +1151,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
-                //完成写动作
+                //完成写动作  其实就是将数据写入到 JDK channel 同时 如果写不进去了 就会注册 OP_WRITE 事件
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 //如果设置了 异常自动关闭就 关闭

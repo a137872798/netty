@@ -84,6 +84,7 @@ public final class Unpooled {
 
     /**
      * A buffer whose capacity is {@code 0}.
+     * 分配一个容量为0 的 空 bytebuf对象
      */
     public static final ByteBuf EMPTY_BUFFER = ALLOC.buffer(0, 0);
 

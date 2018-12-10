@@ -209,6 +209,9 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
         return null;
     }
 
+    /**
+     * server 不存在 disConnect 方法
+     */
     @Override
     protected void doDisconnect() throws Exception {
         throw new UnsupportedOperationException();

@@ -108,7 +108,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         private void closeOnRead(ChannelPipeline pipeline) {
             //判断JDK channel 是否已经被关闭
             if (!isInputShutdown0()) {
-                //如果允许半关闭
+                //如果允许半关闭 好像是说 客户端关闭了 是否要关闭服务端对应的 channel 对象
                 if (isAllowHalfClosure(config())) {
                     //这个是针对JDKchannel 的 方法 暂时看不懂  作用是 暂时关闭读取而不关闭channel 能恢复吗???在什么时机回复???
                     //Shutdown the connection for reading without closing the channel
@@ -120,6 +120,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 }
                 //关闭的情况触发用户自定义事件
             } else {
+                //已经关闭的 情况 设置标识  下次就会取消 READ 事件
                 inputClosedSeenErrorOnRead = true;
                 pipeline.fireUserEventTriggered(ChannelInputShutdownReadComplete.INSTANCE);
             }
@@ -186,6 +187,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         // 释放对象
                         byteBuf.release();
                         byteBuf = null;
+                        //这里代表 对端被关闭了 所以 OP_READ 事件返回的 是 -1
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // There is nothing left to read as we received an EOF.
@@ -246,22 +248,36 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
      */
     protected final int doWrite0(ChannelOutboundBuffer in) throws Exception {
         Object msg = in.current();
+        //这里代表全部flush 了 有种情况 就是 待flush 的数据没有全部写入到nioBuffer 中 那么 虽然nioBufferCnt 为0 了但是 还是存在
+        //flushed 的entry
         if (msg == null) {
             // Directly return here so incompleteWrite(...) is not called.
             return 0;
         }
+        //代表 还有 flushed 的 entry
         return doWriteInternal(in, in.current());
     }
 
+    /**
+     * 处理 剩下的 flushed entry
+     * @param in
+     * @param msg
+     * @return
+     * @throws Exception
+     */
     private int doWriteInternal(ChannelOutboundBuffer in, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
+            //这种情况应该不会出现吧
             if (!buf.isReadable()) {
                 in.remove();
                 return 0;
             }
 
+            //将数据写入到 TCP 缓冲区  其实就是写入到 JDK channel
+            //应该是写入 另一端的 channel 就会准备好读事件 然后就能 从channel 中拉数据
             final int localFlushedAmount = doWriteBytes(buf);
+            //代表确实写入了   下次就写入不进去了 就会到最下面
             if (localFlushedAmount > 0) {
                 in.progress(localFlushedAmount);
                 if (!buf.isReadable()) {
@@ -269,6 +285,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 }
                 return 1;
             }
+
+            //这种不看
         } else if (msg instanceof FileRegion) {
             FileRegion region = (FileRegion) msg;
             if (region.transferred() >= region.count()) {
@@ -288,6 +306,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // Should not reach here.
             throw new Error();
         }
+        //代表 send Buf 被写满了 也就是 TCP 缓冲区被写满了
         return WRITE_STATUS_SNDBUF_FULL;
     }
 
@@ -336,6 +355,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 "unsupported message type: " + StringUtil.simpleClassName(msg) + EXPECTED_TYPES);
     }
 
+    /**
+     * 判断是否要设置 注册 OP_WRITE
+     * @param setOpWrite
+     */
     protected final void incompleteWrite(boolean setOpWrite) {
         // Did not write completely.
         if (setOpWrite) {
@@ -345,6 +368,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // use our write quantum. In this case we no longer want to set the write OP because the socket is still
             // writable (as far as we know). We will find out next time we attempt to write if the socket is writable
             // and set the write OP if necessary.
+            //清除 写事件监听 看来 这个会对性能有一定影响 不然不会这么急着去除
             clearOpWrite();
 
             // Schedule flush again later so other tasks can be picked up in the meantime
@@ -372,6 +396,9 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
      */
     protected abstract int doWriteBytes(ByteBuf buf) throws Exception;
 
+    /**
+     * 注册 OP_WRITE 事件
+     */
     protected final void setOpWrite() {
         final SelectionKey key = selectionKey();
         // Check first if the key is still valid as it may be canceled as part of the deregistration
@@ -386,14 +413,19 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         }
     }
 
+    /**
+     * 准备清理 channel 上注册的写事件
+     */
     protected final void clearOpWrite() {
         final SelectionKey key = selectionKey();
         // Check first if the key is still valid as it may be canceled as part of the deregistration
         // from the EventLoop
         // See https://github.com/netty/netty/issues/2104
+        // 如果selectionKey 已经无效了
         if (!key.isValid()) {
             return;
         }
+        //如果存在 写事件 就移除
         final int interestOps = key.interestOps();
         if ((interestOps & SelectionKey.OP_WRITE) != 0) {
             key.interestOps(interestOps & ~SelectionKey.OP_WRITE);

@@ -782,7 +782,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             //前面是 客户端处理连接 逻辑 而后面就是普通的 client/server 处理读写事件  写事件是什么时候设置的
 
             // Process OP_WRITE first as we may be able to write some queued buffers and so free memory.
-            //如果已经存在写事件了 先将之前的数据全部刷掉
+            // 如果已经存在写事件了 就进行强制 刷盘  一般是不需要监听 OP_WRITE 事件的 可以直接往缓冲区写入数据
+            // 如果写满的时候就不能在写入了 这时就会注册OP_WRITE事件 当可写后 对之前的数据进行强制刷盘
             if ((readyOps & SelectionKey.OP_WRITE) != 0) {
                 // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
                 ch.unsafe().forceFlush();

@@ -638,6 +638,11 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
+    /**
+     * 在ctx 上 如果不支持disconnect 就会转换成close
+     * @param promise
+     * @return
+     */
     @Override
     public ChannelFuture disconnect(final ChannelPromise promise) {
         if (isNotValidPromise(promise, false)) {
@@ -650,6 +655,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         if (executor.inEventLoop()) {
             // Translate disconnect to close if the channel has no notion of disconnect-reconnect.
             // So far, UDP/IP is the only transport that has such behavior.
+            // 是否支持disconnect
             if (!channel().metadata().hasDisconnect()) {
                 next.invokeClose(promise);
             } else {

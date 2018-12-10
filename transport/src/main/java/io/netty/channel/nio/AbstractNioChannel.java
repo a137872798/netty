@@ -419,11 +419,17 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             }
         }
 
+        /**
+         * 相比父类 多了一个状态的判断
+         */
         @Override
         protected final void flush0() {
             // Flush immediately only when there's no pending flush.
             // If there's a pending flush operation, event loop will call forceFlush() later,
             // and thus there's no need to call it now.
+            // 如果不是正在 等待 flush 的状态 就开始 flush
+            // JDK channel 本身是不需要绑定写事件的 如果 绑定了 就是 isFlushPending 为true 那么就代表暂时不能写入 那么flush 就不会调用了
+            // forceFlush()
             if (!isFlushPending()) {
                 super.flush0();
             }
@@ -435,12 +441,22 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             super.flush0();
         }
 
+        /**
+         * 判断是否正在等待 flush 状态
+         * @return
+         */
         private boolean isFlushPending() {
             SelectionKey selectionKey = selectionKey();
+            //selectionKey 有效(这是JDK 原生的方法) 并且 已经注册了 写事件
             return selectionKey.isValid() && (selectionKey.interestOps() & SelectionKey.OP_WRITE) != 0;
         }
     }
 
+    /**
+     * 判断 channel 和 eventloop 是否对应
+     * @param loop
+     * @return
+     */
     @Override
     protected boolean isCompatible(EventLoop loop) {
         return loop instanceof NioEventLoop;

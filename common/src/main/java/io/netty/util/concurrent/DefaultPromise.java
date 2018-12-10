@@ -653,6 +653,8 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
      * the original invocation completes.
      * <p>
      * This will do an iteration over all listeners to get all of type {@link GenericProgressiveFutureListener}s.
+     *
+     * 进度监听器
      * @param progress the new progress.
      * @param total the total progress.
      */
