@@ -24,9 +24,14 @@ import io.netty.util.internal.UnstableApi;
 /**
  * Wraps another {@link ByteBufAllocator} and use heapbuffers everywhere except when a direct buffer is explicit
  * requested.
+ *
+ * 倾向创建 Heap 的 分配器对象
  */
 @UnstableApi
 public final class PreferHeapByteBufAllocator implements ByteBufAllocator {
+    /**
+     * 内部组合了一个 分配器对象
+     */
     private final ByteBufAllocator allocator;
 
     public PreferHeapByteBufAllocator(ByteBufAllocator allocator) {
@@ -47,6 +52,8 @@ public final class PreferHeapByteBufAllocator implements ByteBufAllocator {
     public ByteBuf buffer(int initialCapacity, int maxCapacity) {
         return allocator.heapBuffer(initialCapacity, maxCapacity);
     }
+
+    //io bytebuf 本来默认是使用direct 的 这个类的作用就是  强行创建heap 对象  但是direct还是会返回 堆外内存对象
 
     @Override
     public ByteBuf ioBuffer() {

@@ -300,24 +300,28 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         }
         final int threshold = CALCULATE_THRESHOLD; // 4 MiB page
 
-        //最多只能分配 CALCULATE_THRESHOLD 大小
+        //如果刚好这么大 不进行 扩容
         if (minNewCapacity == threshold) {
             return threshold;
         }
 
         // If over threshold, do not double but just increase by threshold.
-        // 如果超过了 阈值
+        // 如果超过了 阈值 不翻倍 而是以 threshold 为单位 增加大小
         if (minNewCapacity > threshold) {
+            //这个就是 去尾法 保留刚好是threshold 的整数倍
             int newCapacity = minNewCapacity / threshold * threshold;
             if (newCapacity > maxCapacity - threshold) {
+                //不能超过 maxCapacity
                 newCapacity = maxCapacity;
             } else {
+                //然后增加一个 阈值的大小
                 newCapacity += threshold;
             }
             return newCapacity;
         }
 
         // Not over threshold. Double up to 4 MiB, starting from 64.
+        //默认是翻倍
         int newCapacity = 64;
         while (newCapacity < minNewCapacity) {
             newCapacity <<= 1;

@@ -102,13 +102,24 @@ import java.util.Deque;
  *
  * memoryMap[id]= depth_of_id  is defined above
  * depthMap[id]= x  indicates that the first node which is free to be allocated is at depth x (from root)
+ *
+ * 分配内存的 对象 最大为 arena 其次是 chunk  chunk 包含2048 个 page 该对象实现一个数据统计接口
  */
 final class PoolChunk<T> implements PoolChunkMetric {
 
     private static final int INTEGER_SIZE_MINUS_ONE = Integer.SIZE - 1;
 
+    /**
+     * 属于哪个 PoolArena
+     */
     final PoolArena<T> arena;
+    /**
+     * 属于 heap 内存 or direct 内存
+     */
     final T memory;
+    /**
+     * 是否非池化
+     */
     final boolean unpooled;
     final int offset;
     private final byte[] memoryMap;
@@ -134,22 +145,38 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     private int freeBytes;
 
+    /**
+     * 该chunk 所属的 chunkList
+     */
     PoolChunkList<T> parent;
+    //Chunk 本身是一个链表结构 chunk 是从Arena 上分配过来的  Arena 是 内存分配的 最大单位
     PoolChunk<T> prev;
     PoolChunk<T> next;
 
     // TODO: Test if adding padding helps under contention
     //private long pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7;
 
+    /**
+     * 池化的 构造函数
+     * @param arena
+     * @param memory
+     * @param pageSize
+     * @param maxOrder
+     * @param pageShifts
+     * @param chunkSize
+     * @param offset
+     */
     PoolChunk(PoolArena<T> arena, T memory, int pageSize, int maxOrder, int pageShifts, int chunkSize, int offset) {
         unpooled = false;
         this.arena = arena;
         this.memory = memory;
         this.pageSize = pageSize;
         this.pageShifts = pageShifts;
+        //二叉树的高度 默认从0开始
         this.maxOrder = maxOrder;
         this.chunkSize = chunkSize;
         this.offset = offset;
+        //起始标识为 最大深度+1  当节点被使用后 会被标记成 unusable   并且会更新 父节点的 高度值变成 较小的那个可用值 想当于是降级了
         unusable = (byte) (maxOrder + 1);
         log2ChunkSize = log2(chunkSize);
         subpageOverflowMask = ~(pageSize - 1);
@@ -159,24 +186,40 @@ final class PoolChunk<T> implements PoolChunkMetric {
         maxSubpageAllocs = 1 << maxOrder;
 
         // Generate the memory map.
+        //这里存放 内存块  就是2048的那个
         memoryMap = new byte[maxSubpageAllocs << 1];
+        //这里记录对应元素的深度
         depthMap = new byte[memoryMap.length];
+        //起点从1开始 对应[1]为起点的 二叉树 子节点 就分别为 2x 2x+1
         int memoryMapIndex = 1;
         for (int d = 0; d <= maxOrder; ++ d) { // move down the tree one level at a time
+            //外层代表这层有多少元素
             int depth = 1 << d;
+            //内存是在遍历这层的每个元素
             for (int p = 0; p < depth; ++ p) {
+
+                //对于memoryMap 来说 总共存在3种情况
+                //1.memory[i] = depthMap[i] 代表这块内存 还没有被分配
+                //2.
+
                 // in each level traverse left to right and set value to the depth of subtree
+                // 分配节点的时候 这个值会发生变动
                 memoryMap[memoryMapIndex] = (byte) d;
+                //同一层的深度是相同的
                 depthMap[memoryMapIndex] = (byte) d;
                 memoryMapIndex ++;
             }
         }
 
+        //代表分配2048个 subpage
         subpages = newSubpageArray(maxSubpageAllocs);
+        //创建一个双端队列对象
         cachedNioBuffers = new ArrayDeque<ByteBuffer>(8);
     }
 
-    /** Creates a special chunk that is not pooled. */
+    /** Creates a special chunk that is not pooled.
+     *  非池化   什么时候使用非池化创建对象???
+     * */
     PoolChunk(PoolArena<T> arena, T memory, int size, int offset) {
         unpooled = true;
         this.arena = arena;

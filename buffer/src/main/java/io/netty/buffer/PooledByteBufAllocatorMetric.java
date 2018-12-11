@@ -21,10 +21,15 @@ import java.util.List;
 
 /**
  * Exposed metric for {@link PooledByteBufAllocator}.
+ *
+ * 池化 内存分配对象  不同于 非池化对象 非池化对象 每次 分配多少就记录多少
  */
 @SuppressWarnings("deprecation")
 public final class PooledByteBufAllocatorMetric implements ByteBufAllocatorMetric {
 
+    /**
+     * 关联的内存分配器对象  基本都是委托该对象 实现 metric 的功能的
+     */
     private final PooledByteBufAllocator allocator;
 
     PooledByteBufAllocatorMetric(PooledByteBufAllocator allocator) {

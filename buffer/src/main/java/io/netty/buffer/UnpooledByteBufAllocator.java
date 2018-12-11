@@ -23,11 +23,21 @@ import java.nio.ByteBuffer;
 
 /**
  * Simplistic {@link ByteBufAllocator} implementation that does not pool anything.
+ * 非池化 分配器对象
  */
 public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator implements ByteBufAllocatorMetricProvider {
 
+    /**
+     * 非池化 分配器统计对象
+     */
     private final UnpooledByteBufAllocatorMetric metric = new UnpooledByteBufAllocatorMetric();
+    /**
+     * 是否禁用 资源泄露
+     */
     private final boolean disableLeakDetector;
+    /**
+     * 是否不需要 Cleaner 对象
+     */
     private final boolean noCleaner;
 
     /**
@@ -77,6 +87,8 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
                 && PlatformDependent.hasDirectBufferNoCleanerConstructor();
     }
 
+    //通过 该分配器创建的对象其实是 一个 bytebuf 的子类对象 
+
     @Override
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
         return PlatformDependent.hasUnsafe() ?
@@ -118,6 +130,8 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         return metric;
     }
 
+    //每次使用该 内存分配器分配内存 就修改 内部的 一个计数器值
+
     void incrementDirect(int amount) {
         metric.directCounter.add(amount);
     }
@@ -133,6 +147,8 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
     void decrementHeap(int amount) {
         metric.heapCounter.add(-amount);
     }
+
+    //各种 bytebuf 对象 每当调用方法时 会 修改 metric 的数值
 
     private static final class InstrumentedUnpooledUnsafeHeapByteBuf extends UnpooledUnsafeHeapByteBuf {
         InstrumentedUnpooledUnsafeHeapByteBuf(UnpooledByteBufAllocator alloc, int initialCapacity, int maxCapacity) {
@@ -246,6 +262,9 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         }
     }
 
+    /**
+     * 统计对象 能看到申请了多少内存
+     */
     private static final class UnpooledByteBufAllocatorMetric implements ByteBufAllocatorMetric {
         final LongCounter directCounter = PlatformDependent.newLongCounter();
         final LongCounter heapCounter = PlatformDependent.newLongCounter();

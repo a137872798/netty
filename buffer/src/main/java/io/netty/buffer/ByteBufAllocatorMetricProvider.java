@@ -19,6 +19,7 @@ public interface ByteBufAllocatorMetricProvider {
 
     /**
      * Returns a {@link ByteBufAllocatorMetric} for a {@link ByteBufAllocator}.
+     * 监控占用内存情况的类
      */
     ByteBufAllocatorMetric metric();
 }

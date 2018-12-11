@@ -334,7 +334,14 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         }
     }
 
-    // unwrap if already sliced
+
+    /**
+     * unwrap if already sliced
+     * 创建组件对象
+     * @param buf
+     * @param offset 代表该对象的起始偏移量
+     * @return
+     */
     @SuppressWarnings("deprecation")
     private Component newComponent(ByteBuf buf, int offset) {
         if (checkAccessible && buf.refCnt() == 0) {
@@ -343,6 +350,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         int srcIndex = buf.readerIndex(), len = buf.readableBytes();
         ByteBuf slice = null;
         if (buf instanceof AbstractUnpooledSlicedByteBuf) {
+            //计算实际偏移量
             srcIndex += ((AbstractUnpooledSlicedByteBuf) buf).idx(0);
             slice = buf;
             buf = buf.unwrap();
@@ -378,9 +386,9 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
     /**
      * 根据传入的 bytebuf[] 对象生成 Component 对象
      * @param increaseWriterIndex
-     * @param cIndex 这个默认是componentCount
-     * @param buffers
-     * @param arrOffset  代表对应 数组中 起点是 哪里
+     * @param cIndex 代表 从数组对象的第几个开始加入数据
+     * @param buffers 需要添加的数组对象
+     * @param arrOffset  这个是 buffers 的 数组下标 代表从第几个元素开始添加
      * @return
      */
     private int addComponents0(boolean increaseWriterIndex, final int cIndex, ByteBuf[] buffers, int arrOffset) {
@@ -390,11 +398,14 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         try {
             //这个cIndex 好像是 compoment的数组下标
             checkComponentIndex(cIndex);
-            //转变组件???  这个方法会 增加 ComponentCount的数量
+            // 这个方法会 增加 ComponentCount的数量  就是数组拷贝
             shiftComps(cIndex, count); // will increase componentCount
             ci = cIndex; // only set this after we've shifted so that finally block logic is always correct
+            //代表起始偏移量
             int nextOffset = cIndex > 0 ? components[cIndex - 1].endOffset : 0;
+            //将 buffers 数组对象 依次加入到 Component 数组中
             for (ByteBuf b; arrOffset < len && (b = buffers[arrOffset]) != null; arrOffset++, ci++) {
+                //创建 组件对象
                 Component c = newComponent(b, nextOffset);
                 components[ci] = c;
                 nextOffset = c.endOffset;
@@ -1824,6 +1835,14 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
 
         private ByteBuf slice; // cached slice, may be null
 
+        /**
+         * 创建 Component 对象
+         * @param buf
+         * @param srcOffset
+         * @param offset
+         * @param len
+         * @param slice
+         */
         Component(ByteBuf buf, int srcOffset, int offset, int len, ByteBuf slice) {
             this.buf = buf;
             this.offset = offset;
@@ -2247,9 +2266,9 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
     }
 
     /**
-     * 转换组件
+     * 为Composite 数组 扩容
      * @param i
-     * @param count
+     * @param count  代表需要多大
      */
     private void shiftComps(int i, int count) {
         //计算新大小
@@ -2257,8 +2276,10 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         assert i >= 0 && i <= size && count > 0;
         //如果超过当前组件大小
         if (newSize > components.length) {
-            // grow the array
+            // grow the array 获得新大小
             int newArrSize = Math.max(size + (size >> 1), newSize);
+
+            //拷贝数组元素
             Component[] newArr;
             if (i == size) {
                 newArr = Arrays.copyOf(components, newArrSize, Component[].class);

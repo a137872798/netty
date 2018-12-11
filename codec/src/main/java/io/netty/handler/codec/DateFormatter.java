@@ -204,7 +204,7 @@ public final class DateFormatter {
                 }
                 switch (currentPartNumber) {
                     case 0:
-                        // flushing hours
+                        // ing hours
                         localHours = currentPartValue;
                         break;
                     case 1:
