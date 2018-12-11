@@ -44,17 +44,35 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * A virtual buffer which shows multiple buffers as a single merged buffer.  It is recommended to use
  * {@link ByteBufAllocator#compositeBuffer()} or {@link Unpooled#wrappedBuffer(ByteBuf...)} instead of calling the
  * constructor explicitly.
+ *
+ * 复合 Bytebuf 对象  netty 实现 zero-copy 的核心类 其实就是 使用同一内存 而没有创建副本对象
+ * 同时在 flush 时 好像会根据 bytebuf 数量 判断能 flush 多少 对于这个类应该就是返回 >1  的数
  */
 public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements Iterable<ByteBuf> {
 
     private static final ByteBuffer EMPTY_NIO_BUFFER = Unpooled.EMPTY_BUFFER.nioBuffer();
     private static final Iterator<ByteBuf> EMPTY_ITERATOR = Collections.<ByteBuf>emptyList().iterator();
 
+    /**
+     * 关联的 bytebuf 分配器
+     */
     private final ByteBufAllocator alloc;
+    /**
+     * 是否是直接内存
+     */
     private final boolean direct;
+    /**
+     * 最大允许存放的组件数量
+     */
     private final int maxNumComponents;
 
+    /**
+     * 当前组件数量
+     */
     private int componentCount;
+    /**
+     * 组件数组
+     */
     private Component[] components; // resized when needed
 
     private boolean freed;
@@ -71,6 +89,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         this.alloc = alloc;
         this.direct = direct;
         this.maxNumComponents = maxNumComponents;
+        //根据 size 来初始化 components 大小  一般不建议直接通过构造函数 创建 该对象
         components = newCompArray(initSize, maxNumComponents);
     }
 
@@ -86,6 +105,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
             ByteBuf[] buffers, int offset) {
         this(alloc, direct, maxNumComponents, buffers.length - offset);
 
+        //通过 buffers 创建 n 个 component 对象
         addComponents0(false, 0, buffers, offset);
         consolidateIfNeeded();
         setIndex0(0, capacity());
@@ -106,6 +126,8 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         ByteBuf wrap(T bytes);
         boolean isEmpty(T bytes);
     }
+
+    //对应到 heap 和 direct
 
     static final ByteWrapper<byte[]> BYTE_ARRAY_WRAPPER = new ByteWrapper<byte[]>() {
         @Override
@@ -161,6 +183,8 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
      * {@link ByteBuf#release()} ownership of {@code buffer} is transfered to this {@link CompositeByteBuf}.
      * @param buffer the {@link ByteBuf} to add. {@link ByteBuf#release()} ownership is transfered to this
      * {@link CompositeByteBuf}.
+     *
+     * 为 Component 添加新的 组件对象
      */
     public CompositeByteBuf addComponent(ByteBuf buffer) {
         return addComponent(false, buffer);
@@ -176,6 +200,8 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
      * {@link CompositeByteBuf}.
      * @param buffers the {@link ByteBuf}s to add. {@link ByteBuf#release()} ownership of all {@link ByteBuf#release()}
      * ownership of all {@link ByteBuf} objects is transfered to this {@link CompositeByteBuf}.
+     *
+     * 添加多个Component 写成2个方法是因为  可变数组对象 耗能比较大
      */
     public CompositeByteBuf addComponents(ByteBuf... buffers) {
         return addComponents(false, buffers);
@@ -222,6 +248,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
     public CompositeByteBuf addComponent(boolean increaseWriterIndex, ByteBuf buffer) {
         checkNotNull(buffer, "buffer");
         addComponent0(increaseWriterIndex, componentCount, buffer);
+        //如果需要巩固
         consolidateIfNeeded();
         return this;
     }
@@ -275,6 +302,9 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
 
     /**
      * Precondition is that {@code buffer != null}.
+     *
+     * 添加组件对象的 核心方法
+     * cIndex 是 Component 数组下标 应该是 代表要将该buffer 放在 数组中的那个元素里
      */
     private int addComponent0(boolean increaseWriterIndex, int cIndex, ByteBuf buffer) {
         assert buffer != null;
@@ -345,11 +375,22 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         return this;
     }
 
+    /**
+     * 根据传入的 bytebuf[] 对象生成 Component 对象
+     * @param increaseWriterIndex
+     * @param cIndex 这个默认是componentCount
+     * @param buffers
+     * @param arrOffset  代表对应 数组中 起点是 哪里
+     * @return
+     */
     private int addComponents0(boolean increaseWriterIndex, final int cIndex, ByteBuf[] buffers, int arrOffset) {
+        //这个count 是剩余的 空Component 数量
         final int len = buffers.length, count = len - arrOffset;
         int ci = Integer.MAX_VALUE;
         try {
+            //这个cIndex 好像是 compoment的数组下标
             checkComponentIndex(cIndex);
+            //转变组件???  这个方法会 增加 ComponentCount的数量
             shiftComps(cIndex, count); // will increase componentCount
             ci = cIndex; // only set this after we've shifted so that finally block logic is always correct
             int nextOffset = cIndex > 0 ? components[cIndex - 1].endOffset : 0;
@@ -472,8 +513,14 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         }
     }
 
+    /**
+     * 检查组件下标是否 越界
+     * @param cIndex
+     */
     private void checkComponentIndex(int cIndex) {
+        //判断 引用计数 是否合理 如果是0 就是不合理
         ensureAccessible();
+        //超过组件大小 抛出异常
         if (cIndex < 0 || cIndex > componentCount) {
             throw new IndexOutOfBoundsException(String.format(
                     "cIndex: %d (expected: >= 0 && <= numComponents(%d))",
@@ -2199,9 +2246,16 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         components[i] = c;
     }
 
+    /**
+     * 转换组件
+     * @param i
+     * @param count
+     */
     private void shiftComps(int i, int count) {
+        //计算新大小
         final int size = componentCount, newSize = size + count;
         assert i >= 0 && i <= size && count > 0;
+        //如果超过当前组件大小
         if (newSize > components.length) {
             // grow the array
             int newArrSize = Math.max(size + (size >> 1), newSize);

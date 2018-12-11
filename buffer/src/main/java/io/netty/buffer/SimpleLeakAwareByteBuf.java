@@ -22,6 +22,9 @@ import io.netty.util.internal.ObjectUtil;
 
 import java.nio.ByteOrder;
 
+/**
+ * 一个 bytebuf 的包装类 内部维护一个 检测内存泄漏的对象  WrapperBytebuf的功能 基本都是委托到 bytebuf 对象上
+ */
 class SimpleLeakAwareByteBuf extends WrappedByteBuf {
 
     /**
@@ -29,10 +32,17 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
      * is called this object will be used as the argument. It is also assumed that this object is used when
      * {@link ResourceLeakDetector#track(Object)} is called to create {@link #leak}.
      */
+    /**
+     * 被包装对象
+     */
     private final ByteBuf trackedByteBuf;
+    /**
+     * 检测资源泄漏的对象
+     */
     final ResourceLeakTracker<ByteBuf> leak;
 
     SimpleLeakAwareByteBuf(ByteBuf wrapped, ByteBuf trackedByteBuf, ResourceLeakTracker<ByteBuf> leak) {
+        //默认 被检测对象 就是 bytebuf 包装类的 委托对象
         super(wrapped);
         this.trackedByteBuf = ObjectUtil.checkNotNull(trackedByteBuf, "trackedByteBuf");
         this.leak = ObjectUtil.checkNotNull(leak, "leak");
@@ -42,6 +52,8 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
         this(wrapped, wrapped, leak);
     }
 
+    //以下返回副本对象的方法 同时要 保证副本对象也是 资源泄漏对象
+    //如果是 派生对象的情况 将派生对象包装成资源检测对象
     @Override
     public ByteBuf slice() {
         return newSharedLeakAwareByteBuf(super.slice());
@@ -97,9 +109,15 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
         return this;
     }
 
+    /**
+     * 释放资源
+     * @return
+     */
     @Override
     public boolean release() {
+        //如果引用计数 为0了
         if (super.release()) {
+            //调用 资源泄漏对象的 close 代表该对象被正常 回收
             closeLeak();
             return true;
         }
@@ -134,19 +152,26 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
     private ByteBuf unwrappedDerived(ByteBuf derived) {
         // We only need to unwrap SwappedByteBuf implementations as these will be the only ones that may end up in
         // the AbstractLeakAwareByteBuf implementations beside slices / duplicates and "real" buffers.
+        // 获得未包装的原生对象
         ByteBuf unwrappedDerived = unwrapSwapped(derived);
 
+        //如果是 派生对象
         if (unwrappedDerived instanceof AbstractPooledDerivedByteBuf) {
             // Update the parent to point to this buffer so we correctly close the ResourceLeakTracker.
+            // 将该对象设置成 派生对象的 父类
             ((AbstractPooledDerivedByteBuf) unwrappedDerived).parent(this);
+
+            //生成资源检测对象
 
             ResourceLeakTracker<ByteBuf> newLeak = AbstractByteBuf.leakDetector.track(derived);
             if (newLeak == null) {
                 // No leak detection, just return the derived buffer.
+                //代表没有成功生成资源检测对象
                 return derived;
             }
             return newLeakAwareByteBuf(derived, newLeak);
         }
+        //如果不是 derived 对象 就是返回一个 资源检测对象
         return newSharedLeakAwareByteBuf(derived);
     }
 
@@ -162,6 +187,11 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
         return buf;
     }
 
+    /**
+     * 创建一个新的 资源泄漏对象
+     * @param wrapped
+     * @return
+     */
     private SimpleLeakAwareByteBuf newSharedLeakAwareByteBuf(
             ByteBuf wrapped) {
         return newLeakAwareByteBuf(wrapped, trackedByteBuf, leak);

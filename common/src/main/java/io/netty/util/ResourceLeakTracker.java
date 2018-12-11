@@ -15,6 +15,10 @@
  */
 package io.netty.util;
 
+/**
+ * 内存泄漏的 轨迹对象 记录该内存的使用信息
+ * @param <T>
+ */
 public interface ResourceLeakTracker<T>  {
 
     /**

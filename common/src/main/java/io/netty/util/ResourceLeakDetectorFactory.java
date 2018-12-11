@@ -28,10 +28,15 @@ import java.security.PrivilegedAction;
 
 /**
  * This static factory should be used to load {@link ResourceLeakDetector}s as needed
+ *
+ * 内存泄漏工厂对象
  */
 public abstract class ResourceLeakDetectorFactory {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ResourceLeakDetectorFactory.class);
 
+    /**
+     * 使用默认的 内存泄漏检测工厂
+     */
     private static volatile ResourceLeakDetectorFactory factoryInstance = new DefaultResourceLeakDetectorFactory();
 
     /**
@@ -48,6 +53,7 @@ public abstract class ResourceLeakDetectorFactory {
      * {@link ResourceLeakDetector} is called by all the callers of this factory. That is, before initializing a
      * Netty Bootstrap.
      *
+     * 指定特定的  内存泄漏工厂
      * @param factory the instance that will become the current {@link ResourceLeakDetectorFactory}'s singleton
      */
     public static void setResourceLeakDetectorFactory(ResourceLeakDetectorFactory factory) {
@@ -57,6 +63,7 @@ public abstract class ResourceLeakDetectorFactory {
     /**
      * Returns a new instance of a {@link ResourceLeakDetector} with the given resource class.
      *
+     * 根据指定类型 来创建 资源泄露对象(ResourceLeakDetector)
      * @param resource the resource class used to initialize the {@link ResourceLeakDetector}
      * @param <T> the type of the resource class
      * @return a new instance of {@link ResourceLeakDetector}
@@ -95,14 +102,22 @@ public abstract class ResourceLeakDetectorFactory {
 
     /**
      * Default implementation that loads custom leak detector via system property
+     * 默认的 资源泄漏工厂
      */
     private static final class DefaultResourceLeakDetectorFactory extends ResourceLeakDetectorFactory {
+        /**
+         * 过时的消费者 类 构造器
+         */
         private final Constructor<?> obsoleteCustomClassConstructor;
+        /**
+         * 消费者类 构造器
+         */
         private final Constructor<?> customClassConstructor;
 
         DefaultResourceLeakDetectorFactory() {
             String customLeakDetector;
             try {
+                //获取消费者资源泄露信息
                 customLeakDetector = AccessController.doPrivileged(new PrivilegedAction<String>() {
                     @Override
                     public String run() {
@@ -116,16 +131,24 @@ public abstract class ResourceLeakDetectorFactory {
             if (customLeakDetector == null) {
                 obsoleteCustomClassConstructor = customClassConstructor = null;
             } else {
+                //将构造器 名转化为 构造器对象
                 obsoleteCustomClassConstructor = obsoleteCustomClassConstructor(customLeakDetector);
                 customClassConstructor = customClassConstructor(customLeakDetector);
             }
         }
 
+        /**
+         * 将传入的 字符串变成构造器对象
+         * @param customLeakDetector
+         * @return
+         */
         private static Constructor<?> obsoleteCustomClassConstructor(String customLeakDetector) {
             try {
+                //反射创建对象
                 final Class<?> detectorClass = Class.forName(customLeakDetector, true,
                         PlatformDependent.getSystemClassLoader());
 
+                //如果是 实现了 资源泄露探测器类型的 就 返回 否则 打印异常日志
                 if (ResourceLeakDetector.class.isAssignableFrom(detectorClass)) {
                     return detectorClass.getConstructor(Class.class, int.class, long.class);
                 } else {
@@ -155,6 +178,14 @@ public abstract class ResourceLeakDetectorFactory {
             return null;
         }
 
+        /**
+         * 根据指定的 类型生成资源泄露对象  这个resource 对应的 是 ResourceLeakDetector 的哪个属性???
+         * @param resource the resource class used to initialize the {@link ResourceLeakDetector}
+         * @param samplingInterval the interval on which sampling takes place
+         * @param maxActive This is deprecated and will be ignored.
+         * @param <T>
+         * @return
+         */
         @SuppressWarnings("deprecation")
         @Override
         public <T> ResourceLeakDetector<T> newResourceLeakDetector(Class<T> resource, int samplingInterval,
@@ -183,6 +214,7 @@ public abstract class ResourceLeakDetectorFactory {
 
         @Override
         public <T> ResourceLeakDetector<T> newResourceLeakDetector(Class<T> resource, int samplingInterval) {
+            //如果 存在用户自定义的 对象 就返回该对象
             if (customClassConstructor != null) {
                 try {
                     @SuppressWarnings("unchecked")

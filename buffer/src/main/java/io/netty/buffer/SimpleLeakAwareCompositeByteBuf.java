@@ -21,6 +21,9 @@ import io.netty.util.internal.ObjectUtil;
 
 import java.nio.ByteOrder;
 
+/**
+ * SimpleLeakAwareByteBuf 的 composite 版
+ */
 class SimpleLeakAwareCompositeByteBuf extends WrappedCompositeByteBuf {
 
     final ResourceLeakTracker<ByteBuf> leak;
@@ -36,6 +39,7 @@ class SimpleLeakAwareCompositeByteBuf extends WrappedCompositeByteBuf {
         // by unwrap().
         ByteBuf unwrapped = unwrap();
         if (super.release()) {
+            //如果正常释放 从全局资源泄漏容器中移除该对象
             closeLeak(unwrapped);
             return true;
         }

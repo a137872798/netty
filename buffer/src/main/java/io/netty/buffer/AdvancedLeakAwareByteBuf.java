@@ -33,9 +33,15 @@ import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.charset.Charset;
 
+/**
+ * 功能更多的 资源泄漏检测对象 是根据 泄漏检测级别来 划分的
+ */
 final class AdvancedLeakAwareByteBuf extends SimpleLeakAwareByteBuf {
 
     private static final String PROP_ACQUIRE_AND_RELEASE_ONLY = "io.netty.leakDetection.acquireAndReleaseOnly";
+    /**
+     * 根据 设置引用计数 无关的操作是否要 记录 操作信息
+     */
     private static final boolean ACQUIRE_AND_RELEASE_ONLY;
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AdvancedLeakAwareByteBuf.class);
@@ -47,6 +53,7 @@ final class AdvancedLeakAwareByteBuf extends SimpleLeakAwareByteBuf {
             logger.debug("-D{}: {}", PROP_ACQUIRE_AND_RELEASE_ONLY, ACQUIRE_AND_RELEASE_ONLY);
         }
 
+        //该方法是不需要打印的
         ResourceLeakDetector.addExclusions(
                 AdvancedLeakAwareByteBuf.class, "touch", "recordLeakNonRefCountingOperation");
     }
@@ -59,11 +66,17 @@ final class AdvancedLeakAwareByteBuf extends SimpleLeakAwareByteBuf {
         super(wrapped, trackedByteBuf, leak);
     }
 
+    /**
+     * 可以直接进行record 而不管 当前 引用计数 这样在 leak.toString  时 就会多输出很多信息 leak.toString 在发现内存泄漏时会调用
+     * @param leak
+     */
     static void recordLeakNonRefCountingOperation(ResourceLeakTracker<ByteBuf> leak) {
         if (!ACQUIRE_AND_RELEASE_ONLY) {
             leak.record();
         }
     }
+
+    //针对每个操作 都记录了一个 record 这样在 打印leak 信息时 就可以监控该对象的调用流程
 
     @Override
     public ByteBuf order(ByteOrder endianness) {

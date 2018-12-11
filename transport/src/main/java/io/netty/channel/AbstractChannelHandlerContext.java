@@ -1147,6 +1147,10 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
+    /**
+     * 打印资源泄漏轨迹的  难怪每个 ctx 必须要有一个name
+     * @return
+     */
     @Override
     public String toHintString() {
         return '\'' + name + "' will handle the message from this point.";
