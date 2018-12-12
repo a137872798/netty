@@ -39,7 +39,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     protected PoolChunk<T> chunk;
 
     /**
-     * 内存分配的位置
+     * 内存分配的位置  针对 chunk 的 page数组 下标 (针对chunk 来说就是使用了 哪个page 进行分配)
      */
     protected long handle;
     /**
