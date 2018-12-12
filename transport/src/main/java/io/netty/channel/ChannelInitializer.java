@@ -65,6 +65,8 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
      * This method will be called once the {@link Channel} was registered. After the method returns this instance
      * will be removed from the {@link ChannelPipeline} of the {@link Channel}.
      *
+     * 该方法由用户实现 一般就是 获取 该ch 对象并添加 一系列的handler 对象
+     *
      * @param ch            the {@link Channel} which was registered.
      * @throws Exception    is thrown if an error occurs. In that case it will be handled by
      *                      {@link #exceptionCaught(ChannelHandlerContext, Throwable)} which will by default close
@@ -105,6 +107,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
 
     /**
      * {@inheritDoc} If override this method ensure you call super!
+     * 好像是先触发这个 才触发 handlerRegister的 那么在这里进行初始化 后该处理器已经从pipeline 中移除了
      */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
