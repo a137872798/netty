@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * If the {@code checkInterval} is {@code 0}, no accounting will be done and statistics will only be computed at each
  * receive or write operation.
  * </p>
+ *
+ * 流量计数器对象
  */
 public class TrafficCounter {
 
@@ -91,6 +93,7 @@ public class TrafficCounter {
 
     /**
      * Last Time Check taken
+     * 最后一次检查时间 当 更新了配置时 就会更新成修改配置的时间
      */
     final AtomicLong lastTime = new AtomicLong();
 
@@ -163,6 +166,7 @@ public class TrafficCounter {
     /**
      * Class to implement monitoring at fix delay
      *
+     * 监控任务对象
      */
     private final class TrafficMonitoringTask implements Runnable {
         @Override
@@ -170,25 +174,34 @@ public class TrafficCounter {
             if (!monitorActive) {
                 return;
             }
+            //指定时间 记录 流量信息 并 重置
             resetAccounting(milliSecondFromNano());
             if (trafficShapingHandler != null) {
+                //对记录的 流量信息 做处理
                 trafficShapingHandler.doAccounting(TrafficCounter.this);
             }
+            //这是单次任务 每次触发后设置下一次任务
             scheduledFuture = executor.schedule(this, checkInterval.get(), TimeUnit.MILLISECONDS);
         }
     }
 
     /**
      * Start the monitoring process.
+     * 启动计数器对象 也就是开启一个 记录流量信息的 定时任务
      */
     public synchronized void start() {
+        //已经在启动状态 直接返回
         if (monitorActive) {
             return;
         }
+        //记录启动时间
         lastTime.set(milliSecondFromNano());
+        //获取时间间隔
         long localCheckInterval = checkInterval.get();
         // if executor is null, it means it is piloted by a GlobalChannelTrafficCounter, so no executor
+        // 这应该是个 定时任务
         if (localCheckInterval > 0 && executor != null) {
+            //启动监控 并按指定 间隔执行
             monitorActive = true;
             monitor = new TrafficMonitoringTask();
             scheduledFuture =
@@ -198,14 +211,17 @@ public class TrafficCounter {
 
     /**
      * Stop the monitoring process.
+     * 停止监控动作
      */
     public synchronized void stop() {
         if (!monitorActive) {
             return;
         }
         monitorActive = false;
+        //记录 当前流量信息
         resetAccounting(milliSecondFromNano());
         if (trafficShapingHandler != null) {
+            //触发 处理信息的动作
             trafficShapingHandler.doAccounting(this);
         }
         if (scheduledFuture != null) {
@@ -216,24 +232,34 @@ public class TrafficCounter {
     /**
      * Reset the accounting on Read and Write.
      *
+     * 重置 属性
      * @param newLastTime the milliseconds unix timestamp that we should be considered up-to-date for.
+     *                    这个是 当前时间的 纳秒级别
      */
     synchronized void resetAccounting(long newLastTime) {
+        //代表上次检测到现在的时间间隔
         long interval = newLastTime - lastTime.getAndSet(newLastTime);
         if (interval == 0) {
+            //不需要做任何处理
             // nothing to do
             return;
         }
         if (logger.isDebugEnabled() && interval > checkInterval() << 1) {
             logger.debug("Acct schedule not ok: " + interval + " > 2*" + checkInterval() + " from " + name);
         }
+        //将当前 记录的数据全部清零
         lastReadBytes = currentReadBytes.getAndSet(0);
         lastWrittenBytes = currentWrittenBytes.getAndSet(0);
+
+        //计算单位流量 这样就变成 最后次check 到 更改配置后的 单位流量
+
         lastReadThroughput = lastReadBytes * 1000 / interval;
         // nb byte / checkInterval in ms * 1000 (1s)
         lastWriteThroughput = lastWrittenBytes * 1000 / interval;
         // nb byte / checkInterval in ms * 1000 (1s)
         realWriteThroughput = realWrittenBytes.getAndSet(0) * 1000 / interval;
+
+        //设置 读取 和 写入时长 这里的 last 和非last 暂时没搞懂
         lastWritingTime = Math.max(lastWritingTime, writingTime);
         lastReadingTime = Math.max(lastReadingTime, readingTime);
     }
@@ -307,17 +333,23 @@ public class TrafficCounter {
     /**
      * Change checkInterval between two computations in millisecond.
      *
+     * 修改检查时间间隔
      * @param newCheckInterval The new check interval (in milliseconds)
      */
     public void configure(long newCheckInterval) {
+        //去除个位数的时间
         long newInterval = newCheckInterval / 10 * 10;
+        //时间间隔发生变化
         if (checkInterval.getAndSet(newInterval) != newInterval) {
+            //代表需要停止计数
             if (newInterval <= 0) {
                 stop();
                 // No more active monitoring
+                //记录最后的执行时间
                 lastTime.set(milliSecondFromNano());
             } else {
                 // Start if necessary
+                //重启
                 start();
             }
         }
@@ -330,7 +362,9 @@ public class TrafficCounter {
      *            the size in bytes to read
      */
     void bytesRecvFlowControl(long recv) {
+        //当前读取到多少个 bytes 这个长度是 msg 中获取的size
         currentReadBytes.addAndGet(recv);
+        //积累量增加
         cumulativeReadBytes.addAndGet(recv);
     }
 
@@ -486,6 +520,7 @@ public class TrafficCounter {
      * Returns the time to wait (if any) for the given length message, using the given limitTraffic and the max wait
      * time.
      *
+     * 计算 需要 限时多久才能继续读取
      * @param size
      *            the recv size
      * @param limitTraffic
@@ -496,16 +531,24 @@ public class TrafficCounter {
      * @return the current time to wait (in ms) if needed for Read operation.
      */
     public long readTimeToWait(final long size, final long limitTraffic, final long maxTime, final long now) {
+        //记录 获取的 bytes 信息
         bytesRecvFlowControl(size);
         if (size == 0 || limitTraffic == 0) {
             return 0;
         }
+        //获取 最后一次记录的时间
         final long lastTimeCheck = lastTime.get();
+        //获取 记录的 btyes 总数
         long sum = currentReadBytes.get();
+        //获取 本次读取耗时
         long localReadingTime = readingTime;
+        //上次读了多少数据
         long lastRB = lastReadBytes;
+        //代表距离上次 检测的 时间间隔
         final long interval = now - lastTimeCheck;
+        //读取间隔???
         long pastDelay = Math.max(lastReadingTime - lastTimeCheck, 0);
+        //如果超过了 最小间隔时间
         if (interval > AbstractTrafficShapingHandler.MINIMAL_WAIT) {
             // Enough interval time to compute shaping
             long time = sum * 1000 / limitTraffic - interval + pastDelay;

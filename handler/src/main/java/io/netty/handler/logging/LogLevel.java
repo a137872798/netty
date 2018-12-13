@@ -19,6 +19,8 @@ import io.netty.util.internal.logging.InternalLogLevel;
 
 /**
  * Maps the regular {@link LogLevel}s with the {@link InternalLogLevel} ones.
+ *
+ * 日志级别的 枚举对象 对应上日志框架
  */
 public enum LogLevel {
     TRACE(InternalLogLevel.TRACE),

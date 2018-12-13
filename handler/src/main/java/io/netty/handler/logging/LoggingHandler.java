@@ -35,6 +35,8 @@ import static io.netty.util.internal.StringUtil.NEWLINE;
 /**
  * A {@link ChannelHandler} that logs all events using a logging framework.
  * By default, all events are logged at <tt>DEBUG</tt> level.
+ *
+ * 可被共享的 handler 对象  该handler 对象的 核心就是在每个事件触发时打印日志
  */
 @Sharable
 @SuppressWarnings({ "StringConcatenationInsideStringBufferAppend", "StringBufferReplaceableByString" })
@@ -42,7 +44,13 @@ public class LoggingHandler extends ChannelDuplexHandler {
 
     private static final LogLevel DEFAULT_LEVEL = LogLevel.DEBUG;
 
+    /**
+     * 日志对象
+     */
     protected final InternalLogger logger;
+    /**
+     * 日志级别对象
+     */
     protected final InternalLogLevel internalLevel;
 
     private final LogLevel level;
@@ -66,6 +74,7 @@ public class LoggingHandler extends ChannelDuplexHandler {
             throw new NullPointerException("level");
         }
 
+        //使用LoggingHandler 获取 日志对象 这个class 主要是为日志类命名
         logger = InternalLoggerFactory.getInstance(getClass());
         this.level = level;
         internalLevel = level.toInternalLevel();
@@ -135,8 +144,14 @@ public class LoggingHandler extends ChannelDuplexHandler {
         return level;
     }
 
+    /**
+     * 当触发 handler 注册事件时
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        //打印当前日志信息
         if (logger.isEnabled(internalLevel)) {
             logger.log(internalLevel, format(ctx, "REGISTERED"));
         }

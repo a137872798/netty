@@ -44,12 +44,23 @@ public class Slf4JLoggerFactory extends InternalLoggerFactory {
         }
     }
 
+    /**
+     * 返回一个 日志类对象 使用给定的 name
+     * @param name
+     * @return
+     */
     @Override
     public InternalLogger newInstance(String name) {
         return wrapLogger(LoggerFactory.getLogger(name));
     }
 
     // package-private for testing.
+
+    /**
+     * 为生成的 日志类 添加一层包装 因为返回的 日志类对象是 日志框架原生的 类 需要做适配
+     * @param logger
+     * @return
+     */
     static InternalLogger wrapLogger(Logger logger) {
         return logger instanceof LocationAwareLogger ?
                 new LocationAwareSlf4JLogger((LocationAwareLogger) logger) : new Slf4JLogger(logger);

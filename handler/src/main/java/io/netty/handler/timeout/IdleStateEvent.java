@@ -20,6 +20,8 @@ import io.netty.util.internal.ObjectUtil;
 
 /**
  * A user event triggered by {@link IdleStateHandler} when a {@link Channel} is idle.
+ *
+ * 维护了 有关心跳检测时间的对象 该对象除了单纯的 事件类型外 还封装了是否是第一次的 属性
  */
 public class IdleStateEvent {
     public static final IdleStateEvent FIRST_READER_IDLE_STATE_EVENT = new IdleStateEvent(IdleState.READER_IDLE, true);
@@ -29,7 +31,13 @@ public class IdleStateEvent {
     public static final IdleStateEvent FIRST_ALL_IDLE_STATE_EVENT = new IdleStateEvent(IdleState.ALL_IDLE, true);
     public static final IdleStateEvent ALL_IDLE_STATE_EVENT = new IdleStateEvent(IdleState.ALL_IDLE, false);
 
+    /**
+     * 事件枚举
+     */
     private final IdleState state;
+    /**
+     * 是否为 第一次
+     */
     private final boolean first;
 
     /**

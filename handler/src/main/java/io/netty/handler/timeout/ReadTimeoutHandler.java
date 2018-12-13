@@ -58,8 +58,13 @@ import java.util.concurrent.TimeUnit;
  * </pre>
  * @see WriteTimeoutHandler
  * @see IdleStateHandler
+ *
+ *
  */
 public class ReadTimeoutHandler extends IdleStateHandler {
+    /**
+     * 判断该handler 是否被关闭
+     */
     private boolean closed;
 
     /**
@@ -84,9 +89,18 @@ public class ReadTimeoutHandler extends IdleStateHandler {
         super(timeout, 0, 0, unit);
     }
 
+    /**
+     * 这个方法是 继承自 IdleStateHandler 原本在 触发 发送心跳包的逻辑时 会调用这个方法
+     * 默认实现是 通过调用链交由 用户自身处理 (userTrigger)
+     * @param ctx
+     * @param evt
+     * @throws Exception
+     */
     @Override
     protected final void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) throws Exception {
+        //如果检测到是 读超时事件  获取IdleStateEvent 的 state状态 对应到 IdleState 枚举对象
         assert evt.state() == IdleState.READER_IDLE;
+        //触发超时事件
         readTimedOut(ctx);
     }
 
@@ -95,6 +109,7 @@ public class ReadTimeoutHandler extends IdleStateHandler {
      */
     protected void readTimedOut(ChannelHandlerContext ctx) throws Exception {
         if (!closed) {
+            //传递异常 以及尝试关闭channel
             ctx.fireExceptionCaught(ReadTimeoutException.INSTANCE);
             ctx.close();
             closed = true;

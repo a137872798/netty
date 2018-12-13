@@ -20,6 +20,7 @@ import io.netty.channel.Channel;
 
 /**
  * An {@link Enum} that represents the idle state of a {@link Channel}.
+ * 心跳检测事件枚举
  */
 public enum IdleState {
     /**

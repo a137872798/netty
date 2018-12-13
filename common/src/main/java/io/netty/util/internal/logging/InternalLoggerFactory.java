@@ -35,14 +35,21 @@ public abstract class InternalLoggerFactory {
 
     private static volatile InternalLoggerFactory defaultFactory;
 
+    /**
+     * 日志工厂对象从 这个name 代表日志对象的名字
+     * @param name
+     * @return
+     */
     @SuppressWarnings("UnusedCatchParameter")
     private static InternalLoggerFactory newDefaultFactory(String name) {
         InternalLoggerFactory f;
         try {
+            //默认先加载slfF4j
             f = new Slf4JLoggerFactory(true);
             f.newInstance(name).debug("Using SLF4J as the default logging framework");
         } catch (Throwable ignore1) {
             try {
+                //加载不到加载 Log4J
                 f = Log4JLoggerFactory.INSTANCE;
                 f.newInstance(name).debug("Using Log4J as the default logging framework");
             } catch (Throwable ignore2) {
@@ -88,6 +95,7 @@ public abstract class InternalLoggerFactory {
 
     /**
      * Creates a new logger instance with the specified name.
+     * 从日志工厂中 通过类名 获取 对应的 日志类对象
      */
     public static InternalLogger getInstance(String name) {
         return getDefaultFactory().newInstance(name);

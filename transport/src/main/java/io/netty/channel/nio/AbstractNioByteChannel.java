@@ -200,7 +200,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     //增加读取的消息数  一次只增加1
                     allocHandle.incMessagesRead(1);
                     readPending = false;
-                    //触发 读取
+                    //触发 读取 所以每次 触发 ChannelRead的 一定是 bytebuf对象
                     pipeline.fireChannelRead(byteBuf);
                     //调用链触发完后 置空(在 tail 节点会进行释放)
                     byteBuf = null;

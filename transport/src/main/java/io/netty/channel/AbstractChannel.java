@@ -167,7 +167,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     }
 
     /**
-     * 是否可写 是通过 委托到unsafe 对象实现的
+     * 是否可写 是通过 委托到unsafe 对象实现的  这里就是使用到高低水位的 地方 这个水位 判断 没有在项目中看到 难道使用户 自己获取
+     * channel 来判断吗???
      * @return
      */
     @Override

@@ -45,12 +45,18 @@ import java.util.concurrent.TimeUnit;
  * <li><tt>getTrafficCounter</tt> allows you to have access to the TrafficCounter and so to stop
  * or start the monitoring, to change the checkInterval directly, or to have access to its values.</li>
  * </ul>
+ *
+ * 用于调整 流量输出的 速率 当报文的发送过快时 先缓存在某个地方 再通过流量算法 均匀的发送报文
+ *
+ * 该对象允许限制全局的 带宽 或者 每个Session 的带宽 进行流量整形
+ * 应该是通过该handler 干预 写入到 buffer中的速度
  */
 public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler {
     private static final InternalLogger logger =
             InternalLoggerFactory.getInstance(AbstractTrafficShapingHandler.class);
     /**
      * Default delay between two checks: 1s
+     * 2次检查的 时间间隔
      */
     public static final long DEFAULT_CHECK_INTERVAL = 1000;
 
@@ -58,82 +64,101 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
     * Default max delay in case of traffic shaping
     * (during which no communication will occur).
     * Shall be less than TIMEOUT. Here half of "standard" 30s
+    *
+    * 流量整形的最大延迟时间
     */
     public static final long DEFAULT_MAX_TIME = 15000;
 
     /**
      * Default max size to not exceed in buffer (write only).
+     * 默认的最大尺寸 防止超过 buffer
      */
     static final long DEFAULT_MAX_SIZE = 4 * 1024 * 1024L;
 
     /**
      * Default minimal time to wait
+     * 最小等待时间
      */
     static final long MINIMAL_WAIT = 10;
 
     /**
      * Traffic Counter
+     * 流量计数器
      */
     protected TrafficCounter trafficCounter;
 
     /**
      * Limit in B/s to apply to write
+     * 好像是 限制写的 流量
      */
     private volatile long writeLimit;
 
     /**
      * Limit in B/s to apply to read
+     * 限制读的流量
      */
     private volatile long readLimit;
 
     /**
      * Max delay in wait
+     * 流量整形的最大时间
      */
     protected volatile long maxTime = DEFAULT_MAX_TIME; // default 15 s
 
     /**
      * Delay between two performance snapshots
+     * 检查时间
      */
     protected volatile long checkInterval = DEFAULT_CHECK_INTERVAL; // default 1 s
 
+    //获取属性
     static final AttributeKey<Boolean> READ_SUSPENDED = AttributeKey
             .valueOf(AbstractTrafficShapingHandler.class.getName() + ".READ_SUSPENDED");
+    //获取 reopen_task对象
     static final AttributeKey<Runnable> REOPEN_TASK = AttributeKey.valueOf(AbstractTrafficShapingHandler.class
             .getName() + ".REOPEN_TASK");
 
     /**
      * Max time to delay before proposing to stop writing new objects from next handlers
+     * 最大的写入延迟时间
      */
     volatile long maxWriteDelay = 4 * DEFAULT_CHECK_INTERVAL; // default 4 s
     /**
      * Max size in the list before proposing to stop writing new objects from next handlers
+     * 允许写入的最大大小
      */
     volatile long maxWriteSize = DEFAULT_MAX_SIZE; // default 4MB
 
     /**
      * Rank in UserDefinedWritability (1 for Channel, 2 for Global TrafficShapingHandler).
      * Set in final constructor. Must be between 1 and 31
+     *
+     * 用户自定义的 写下标 必须在 1~31之间  1代表是针对session 的 2 代表是全局的
      */
     final int userDefinedWritabilityIndex;
 
     /**
      * Default value for Channel UserDefinedWritability index
+     * 默认的  session 级别流量整形
      */
     static final int CHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX = 1;
 
     /**
      * Default value for Global UserDefinedWritability index
+     * 全局流量整形
      */
     static final int GLOBAL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX = 2;
 
     /**
      * Default value for GlobalChannel UserDefinedWritability index
+     * 这个跟上面有什么区别
      */
     static final int GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX = 3;
 
     /**
      * @param newTrafficCounter
      *            the TrafficCounter to set
+     *            通过 流量计数器来初始化
      */
     void setTrafficCounter(TrafficCounter newTrafficCounter) {
         trafficCounter = newTrafficCounter;
@@ -145,6 +170,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      *              for Global TSH it is defined as {@value #GLOBAL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX},
      *              for GlobalChannel TSH it is defined as
      *              {@value #GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX}.
+     *              返回用户定义的 下标
      */
     protected int userDefinedWritabilityIndex() {
         return CHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX;
@@ -232,6 +258,8 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      * @param newWriteLimit The new write limit (in bytes)
      * @param newReadLimit The new read limit (in bytes)
      * @param newCheckInterval The new check interval (in milliseconds)
+     *
+     *                         更新流量整形 配置
      */
     public void configure(long newWriteLimit, long newReadLimit,
             long newCheckInterval) {
@@ -249,11 +277,13 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      *
      * @param newWriteLimit The new write limit (in bytes)
      * @param newReadLimit The new read limit (in bytes)
+     *                     更新流量整形控制 并 影响到 流量计数器 因为 这些参数是给 流量计数器使用的
      */
     public void configure(long newWriteLimit, long newReadLimit) {
         writeLimit = newWriteLimit;
         readLimit = newReadLimit;
         if (trafficCounter != null) {
+            //促使计数器计算 上次 检查到更改配置后的流量信息 并重置指针
             trafficCounter.resetAccounting(TrafficCounter.milliSecondFromNano());
         }
     }
@@ -261,6 +291,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
     /**
      * Change the check interval.
      *
+     * 更新检查时间间隔
      * @param newCheckInterval The new check interval (in milliseconds)
      */
     public void configure(long newCheckInterval) {
@@ -409,6 +440,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      * Called each time the accounting is computed from the TrafficCounters.
      * This method could be used for instance to implement almost real time accounting.
      *
+     * 对 流量信息做处理
      * @param counter
      *            the TrafficCounter that computes its performance
      */
@@ -418,8 +450,11 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
 
     /**
      * Class to implement setReadable at fix time
+     *
+     * 定时开启读取功能
      */
     static final class ReopenReadTimerTask implements Runnable {
+        //传入ctx 进行初始化
         final ChannelHandlerContext ctx;
         ReopenReadTimerTask(ChannelHandlerContext ctx) {
             this.ctx = ctx;
@@ -429,7 +464,9 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
         public void run() {
             Channel channel = ctx.channel();
             ChannelConfig config = channel.config();
+            //如果已经设置了 autoRead 为 false 并且 ctx 的 read_suspended 未设置 或是 false
             if (!config.isAutoRead() && isHandlerActive(ctx)) {
+                //代表是用户自己设置的 autoRead 为 false 由用户自己开启
                 // If AutoRead is False and Active is True, user make a direct setAutoRead(false)
                 // Then Just reset the status
                 if (logger.isDebugEnabled()) {
@@ -439,21 +476,27 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                 channel.attr(READ_SUSPENDED).set(false);
             } else {
                 // Anything else allows the handler to reset the AutoRead
+                // 剩下的无论哪种情况都 恢复 autoRead
                 if (logger.isDebugEnabled()) {
+                    //autoRead 开启 并且开启 read_suspended
                     if (config.isAutoRead() && !isHandlerActive(ctx)) {
                         if (logger.isDebugEnabled()) {
                             logger.debug("Unsuspend: " + config.isAutoRead() + ':' +
                                     isHandlerActive(ctx));
                         }
                     } else {
+                        //autoRead 开启 read_suspended 关闭  autoRead 关闭 read_suspended 开启
                         if (logger.isDebugEnabled()) {
                             logger.debug("Normal unsuspend: " + config.isAutoRead() + ':'
                                     + isHandlerActive(ctx));
                         }
                     }
                 }
+                //代表当前没有 暂停读事件
                 channel.attr(READ_SUSPENDED).set(false);
+                //设置成 自动读取 并调用 read 这样会将 selector 监听读事件
                 config.setAutoRead(true);
+                //一旦 触发读事件 如果之前没有注册 selector 事件 现在也会注册
                 channel.read();
             }
             if (logger.isDebugEnabled()) {
@@ -465,6 +508,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
 
     /**
      * Release the Read suspension
+     * 设置自动读取 并 取消 read 悬停
      */
     void releaseReadSuspended(ChannelHandlerContext ctx) {
         Channel channel = ctx.channel();
@@ -472,14 +516,26 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
         channel.config().setAutoRead(true);
     }
 
+    /**
+     * 触发读取事件
+     * @param ctx
+     * @param msg
+     * @throws Exception
+     */
     @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
+        //计算 该 msg 的大小
         long size = calculateSize(msg);
+        //获取当前时间 以纳秒为单位
         long now = TrafficCounter.milliSecondFromNano();
+        //msg有效时 应该是 将 读取到的消息 保存起来 限制带宽
         if (size > 0) {
             // compute the number of ms to wait before reopening the channel
+            // 判断要 等待多久
             long wait = trafficCounter.readTimeToWait(size, readLimit, maxTime, now);
+            // 检查该 准备时间是否合理 在本类中不做处理 子类有进行处理
             wait = checkWaitReadTime(ctx, wait, now);
+            //超过最小 悬停时间才有意义
             if (wait >= MINIMAL_WAIT) { // At least 10ms seems a minimal
                 // time in order to try to limit the traffic
                 // Only AutoRead AND HandlerActive True means Context Active
@@ -490,16 +546,20 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                             + isHandlerActive(ctx));
                 }
                 if (config.isAutoRead() && isHandlerActive(ctx)) {
+                    //关闭自动读取 这样在 下次 selector 读取到数据时 进入到这里 发现没有自动读取后 取消 read事件在selector 的注册
                     config.setAutoRead(false);
+                    //设置代表 处在悬停状态
                     channel.attr(READ_SUSPENDED).set(true);
                     // Create a Runnable to reactive the read if needed. If one was create before it will just be
                     // reused to limit object creation
                     Attribute<Runnable> attr = channel.attr(REOPEN_TASK);
                     Runnable reopenTask = attr.get();
                     if (reopenTask == null) {
+                        //设置开启重读事件的任务
                         reopenTask = new ReopenReadTimerTask(ctx);
                         attr.set(reopenTask);
                     }
+                    //等待 指定时间后 重新注册read事件到 selector上
                     ctx.executor().schedule(reopenTask, wait, TimeUnit.MILLISECONDS);
                     if (logger.isDebugEnabled()) {
                         logger.debug("Suspend final status => " + config.isAutoRead() + ':'
@@ -508,6 +568,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                 }
             }
         }
+        //通知 可读
         informReadOperation(ctx, now);
         ctx.fireChannelRead(msg);
     }
@@ -637,6 +698,8 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      * This implementation supports {@link ByteBuf} and {@link ByteBufHolder}. Sub-classes may override this.
      * @param msg the msg for which the size should be calculated.
      * @return size the size of the msg or {@code -1} if unknown.
+     *
+     * 计算msg 的大小
      */
     protected long calculateSize(Object msg) {
         if (msg instanceof ByteBuf) {

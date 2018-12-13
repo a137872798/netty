@@ -149,7 +149,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 如果 该 message 实现了ReferenceCounted 会触发touch 方法并返回 好像是记录当前对象信息的
+     * 如果 该 message 实现了ReferenceCounted 会触发touch 方法并返回 好像是记录当前对象信息的 这样就清除该msg 的调用情况
+     * 便于排查 资源泄露的相关信息
      * @param msg
      * @param next
      * @return
@@ -833,6 +834,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         // Notify the complete removal.
         try {
             try {
+                //移除时触发传入的 还是 ctx 自身
                 ctx.handler().handlerRemoved(ctx);
             } finally {
                 ctx.setRemoved();
@@ -1263,6 +1265,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         return this;
     }
 
+    //从尾节点开始写数据
     @Override
     public final ChannelFuture write(Object msg) {
         return tail.write(msg);
@@ -1632,7 +1635,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
 
         /**
-         * 当active 触发后 自动触发读事件
+         * 当active 触发后 自动触发读事件 这里是将 read事件注册到选择器上 而不是 读取到什么消息
          * @param ctx
          */
         @Override
