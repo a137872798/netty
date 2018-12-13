@@ -22,10 +22,12 @@ import java.util.Map;
 
 /**
  * Skeleton implementation of a {@link ChannelHandler}.
+ * handler 适配器对象 默认将所有方法 直接往下传播 用户可以通过 重写指定的事件处理
  */
 public abstract class ChannelHandlerAdapter implements ChannelHandler {
 
     // Not using volatile because it's used only for a sanity check.
+    // 代表该handler 是否已经被添加到某个 pipeline 中了
     boolean added;
 
     /**
@@ -40,6 +42,8 @@ public abstract class ChannelHandlerAdapter implements ChannelHandler {
     /**
      * Return {@code true} if the implementation is {@link Sharable} and so can be added
      * to different {@link ChannelPipeline}s.
+     *
+     * 判断该handler 是否是 可共享的
      */
     public boolean isSharable() {
         /**
@@ -51,6 +55,7 @@ public abstract class ChannelHandlerAdapter implements ChannelHandler {
          * See <a href="https://github.com/netty/netty/issues/2289">#2289</a>.
          */
         Class<?> clazz = getClass();
+        //在每个线程中 都 将 该handler 是否是可共享的 给保存起来了
         Map<Class<?>, Boolean> cache = InternalThreadLocalMap.get().handlerSharableCache();
         Boolean sharable = cache.get(clazz);
         if (sharable == null) {

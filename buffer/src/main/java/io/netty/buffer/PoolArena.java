@@ -102,7 +102,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     private final LongCounter activeBytesHuge = PlatformDependent.newLongCounter();
 
     /**
-     * 释放的大小
+     * 记录释放的次数 每次 free 都会增加1
      */
     private long deallocationsTiny;
     private long deallocationsSmall;
@@ -440,26 +440,41 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         return isTiny(normCapacity) ? SizeClass.Tiny : SizeClass.Small;
     }
 
+    /**
+     * 释放内存 也就是归还到 arena
+     * @param chunk 需要被归还的 chunk 对象
+     * @param handle 指向哪个page 如果分配的是 subpage 级别还会 获得bitmap的下标用来确定分配的 位置
+     * @param sizeClass
+     * @param nioBuffer
+     */
     void freeChunk(PoolChunk<T> chunk, long handle, SizeClass sizeClass, ByteBuffer nioBuffer) {
+        //是否要销毁 chunk
         final boolean destroyChunk;
         synchronized (this) {
             switch (sizeClass) {
+                //如果是 normal 增加 释放的 normal 内存数量
             case Normal:
                 ++deallocationsNormal;
                 break;
+                //如果是 small 增加 释放的small 内存数量
             case Small:
                 ++deallocationsSmall;
                 break;
+                //增加释放的  tiny 数量
             case Tiny:
                 ++deallocationsTiny;
                 break;
             default:
+                //不应该存在的 内存 规格
                 throw new Error();
             }
+            //委托到 chunkList 进行free  最终还是 委托到 chunk.free 只是 这里会 根据使用率判断是否要移动chunk 对象
             destroyChunk = !chunk.parent.free(chunk, handle, nioBuffer);
         }
+        //使用率为0 时 会设置成 true 这时需要释放内存
         if (destroyChunk) {
             // destroyChunk not need to be called while holding the synchronized lock.
+            // 销毁不需要 内置锁 包裹
             destroyChunk(chunk);
         }
     }
@@ -865,29 +880,51 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
     }
 
+    /**
+     * 终结方法 一般不推荐使用 当对象被回收时会隐性调用
+     * @throws Throwable
+     */
     @Override
     protected final void finalize() throws Throwable {
         try {
+            //一般都会调用父类的 该方法 保证不出现什么意外
             super.finalize();
         } finally {
+            //销毁 small级别的 数组对象
             destroyPoolSubPages(smallSubpagePools);
+            //销毁 tiny级别的 数组对象
             destroyPoolSubPages(tinySubpagePools);
+            //销毁 chunkList 链表对象
             destroyPoolChunkLists(qInit, q000, q025, q050, q075, q100);
         }
     }
 
+    /**
+     * 批量销毁 subpage对象 最终都会来到 PoolArea.destroyChunk(chunk)
+     * @param pages
+     */
     private static void destroyPoolSubPages(PoolSubpage<?>[] pages) {
         for (PoolSubpage<?> page : pages) {
             page.destroy();
         }
     }
 
+    /**
+     * 批量销毁 chunkList 对象  批量销毁 subpage对象 最终都会来到 PoolArea.destroyChunk(chunk)
+     * @param chunkLists
+     */
     private void destroyPoolChunkLists(PoolChunkList<T>... chunkLists) {
         for (PoolChunkList<T> chunkList: chunkLists) {
             chunkList.destroy(this);
         }
     }
 
+    //池化对象在创建的时候 memory 都还是没有设置的  不像非池化在创建的时候 比如heap 对象直接初始化了 byte[] pooled 都是需要调用一个init 方法
+    //然后将chunk中的内存分配出去
+
+    /**
+     * 使用heap 内存 来创建 Chunk对象
+     */
     static final class HeapArena extends PoolArena<byte[]> {
 
         HeapArena(PooledByteBufAllocator parent, int pageSize, int maxOrder,
@@ -896,36 +933,75 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                     directMemoryCacheAlignment);
         }
 
+        /**
+         * 就是创建一个 byte[] 对象 里面不知道搞了什么骚操作
+         * @param size
+         * @return
+         */
         private static byte[] newByteArray(int size) {
             return PlatformDependent.allocateUninitializedArray(size);
         }
 
+        /**
+         * 直接返回 非 Direct
+         * @return
+         */
         @Override
         boolean isDirect() {
             return false;
         }
 
+        /**
+         * 生成一个新的 chunk 对象
+         * @param pageSize
+         * @param maxOrder
+         * @param pageShifts
+         * @param chunkSize
+         * @return
+         */
         @Override
         protected PoolChunk<byte[]> newChunk(int pageSize, int maxOrder, int pageShifts, int chunkSize) {
+            //一般默认偏移量都是 0 可能只有对 direct 有用
             return new PoolChunk<byte[]>(this, newByteArray(chunkSize), pageSize, maxOrder, pageShifts, chunkSize, 0);
         }
 
+        /**
+         * 池化 和非池化 的参数是不一样的
+         * @param capacity
+         * @return
+         */
         @Override
         protected PoolChunk<byte[]> newUnpooledChunk(int capacity) {
             return new PoolChunk<byte[]>(this, newByteArray(capacity), capacity, 0);
         }
 
+        /**
+         * heap 内存 会通过GC回收
+         */
         @Override
         protected void destroyChunk(PoolChunk<byte[]> chunk) {
             // Rely on GC.
         }
 
+        /**
+         * 创建 池化的 bytebuf 对象 先判断是否支持 unsafe 这个对象在创建时 还是没有 memory 对象的 需要通过调用一个init 方法设置内存对象
+         * @param maxCapacity
+         * @return
+         */
         @Override
         protected PooledByteBuf<byte[]> newByteBuf(int maxCapacity) {
             return HAS_UNSAFE ? PooledUnsafeHeapByteBuf.newUnsafeInstance(maxCapacity)
                     : PooledHeapByteBuf.newInstance(maxCapacity);
         }
 
+        /**
+         * 拷贝 对于 heap 对象来说就是拷贝数组
+         * @param src 旧的数据体
+         * @param srcOffset 旧的偏移量
+         * @param dst 新的数据体
+         * @param dstOffset 新的偏移量
+         * @param length copy 的长度
+         */
         @Override
         protected void memoryCopy(byte[] src, int srcOffset, byte[] dst, int dstOffset, int length) {
             if (length == 0) {
@@ -936,6 +1012,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
     }
 
+    //直接内存对象
     static final class DirectArena extends PoolArena<ByteBuffer> {
 
         DirectArena(PooledByteBufAllocator parent, int pageSize, int maxOrder,
@@ -944,6 +1021,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                     directMemoryCacheAlignment);
         }
 
+        /**
+         * 代表是 直接内存
+         * @return
+         */
         @Override
         boolean isDirect() {
             return true;
@@ -961,11 +1042,21 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             return directMemoryCacheAlignment - remainder;
         }
 
+        /**
+         * 创建一个新的 chunk 对象
+         * @param pageSize
+         * @param maxOrder
+         * @param pageShifts
+         * @param chunkSize
+         * @return
+         */
         @Override
         protected PoolChunk<ByteBuffer> newChunk(int pageSize, int maxOrder,
                 int pageShifts, int chunkSize) {
+            //这个对齐不知道什么用 不过一般都是0
             if (directMemoryCacheAlignment == 0) {
                 return new PoolChunk<ByteBuffer>(this,
+                        //根据指定大小分配直接内存
                         allocateDirect(chunkSize), pageSize, maxOrder,
                         pageShifts, chunkSize, 0);
             }
@@ -973,9 +1064,16 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                     + directMemoryCacheAlignment);
             return new PoolChunk<ByteBuffer>(this, memory, pageSize,
                     maxOrder, pageShifts, chunkSize,
+                    //这里就计算了 偏移量  跟 offset 有关的 还不懂
                     offsetCacheLine(memory));
         }
 
+
+        /**
+         * 创建非池化的 对象  池化和非池化的 参数不一样
+         * @param capacity
+         * @return
+         */
         @Override
         protected PoolChunk<ByteBuffer> newUnpooledChunk(int capacity) {
             if (directMemoryCacheAlignment == 0) {
@@ -988,20 +1086,37 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                     offsetCacheLine(memory));
         }
 
+        /**
+         * 根据是否支持 cleaner 创建 direct内存
+         * @param capacity
+         * @return
+         */
         private static ByteBuffer allocateDirect(int capacity) {
             return PlatformDependent.useDirectBufferNoCleaner() ?
+                    //unsafe 创建的好像能直接定位到地址 可能使用unsafe 创建的  释放也直接操纵unsafe了                   //没有使用unsafe 而是使用nio
                     PlatformDependent.allocateDirectNoCleaner(capacity) : ByteBuffer.allocateDirect(capacity);
         }
 
+        /**
+         * 释放内存
+         * @param chunk
+         */
         @Override
         protected void destroyChunk(PoolChunk<ByteBuffer> chunk) {
             if (PlatformDependent.useDirectBufferNoCleaner()) {
+                //不使用clean 直接使用unsafe 进行内存释放
                 PlatformDependent.freeDirectNoCleaner(chunk.memory);
             } else {
+                //使用 反射获取的 clean 对象进行内存释放
                 PlatformDependent.freeDirectBuffer(chunk.memory);
             }
         }
 
+        /**
+         * 创建 bytebuf 对象
+         * @param maxCapacity
+         * @return
+         */
         @Override
         protected PooledByteBuf<ByteBuffer> newByteBuf(int maxCapacity) {
             if (HAS_UNSAFE) {
@@ -1011,18 +1126,28 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             }
         }
 
+        /**
+         * 拷贝内存
+         * @param src 旧的数据体
+         * @param srcOffset 旧的偏移量
+         * @param dst 新的数据体
+         * @param dstOffset 新的偏移量
+         * @param length copy 的长度
+         */
         @Override
         protected void memoryCopy(ByteBuffer src, int srcOffset, ByteBuffer dst, int dstOffset, int length) {
             if (length == 0) {
                 return;
             }
 
+            //支持unsafe 直接用该对象操控内存
             if (HAS_UNSAFE) {
                 PlatformDependent.copyMemory(
                         PlatformDependent.directBufferAddress(src) + srcOffset,
                         PlatformDependent.directBufferAddress(dst) + dstOffset, length);
             } else {
                 // We must duplicate the NIO buffers because they may be accessed by other Netty buffers.
+                //操作 NioBytebuffer对象 进行 拷贝
                 src = src.duplicate();
                 dst = dst.duplicate();
                 src.position(srcOffset).limit(srcOffset + length);
