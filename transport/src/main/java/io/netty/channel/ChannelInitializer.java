@@ -127,7 +127,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
 
     /**
      * 一般传入的 就是 headContext
-     * @param ctx
+     * @param ctxAbstractTrafficShapingHandler
      * @return
      * @throws Exception
      */

@@ -25,6 +25,7 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 /**
  * Special {@link AbstractList} implementation which is used within our codec base classes.
+ * 用来 帮助编解码 的List 对象
  */
 final class CodecOutputList extends AbstractList<Object> implements RandomAccess {
 
@@ -44,11 +45,15 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
                 }
             };
 
+    /**
+     * 私有接口 可以回收 CodecOutputList对象
+     */
     private interface CodecOutputListRecycler {
         void recycle(CodecOutputList codecOutputList);
     }
 
     private static final class CodecOutputLists implements CodecOutputListRecycler {
+        //存放 需要被 编解码的 对象列表
         private final CodecOutputList[] elements;
         private final int mask;
 
@@ -56,30 +61,45 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         private int count;
 
         CodecOutputLists(int numElements) {
+            //初始化  长度 向上取2的幂次
             elements = new CodecOutputList[MathUtil.safeFindNextPositivePowerOfTwo(numElements)];
             for (int i = 0; i < elements.length; ++i) {
                 // Size of 16 should be good enough for the majority of all users as an initial capacity.
                 elements[i] = new CodecOutputList(this, 16);
             }
+            //记录长度的
             count = elements.length;
+            //起始下标
             currentIdx = elements.length;
+            //掩码 为总长度 -1
             mask = elements.length - 1;
         }
 
+        /**
+         * 如果
+         * @return
+         */
         public CodecOutputList getOrCreate() {
+            //从这个 Lists 中获取List 对象 如果数组为空创建一个新对象
             if (count == 0) {
                 // Return a new CodecOutputList which will not be cached. We use a size of 4 to keep the overhead
                 // low.
                 return new CodecOutputList(NOOP_RECYCLER, 4);
             }
+            //这个count 好像对应了currentIdx  其实List 对象并没有减少
             --count;
 
+            //获取下标
             int idx = (currentIdx - 1) & mask;
             CodecOutputList list = elements[idx];
             currentIdx = idx;
             return list;
         }
 
+        /**
+         * 将List 归还到 Lists 对象数组中
+         * @param codecOutputList
+         */
         @Override
         public void recycle(CodecOutputList codecOutputList) {
             int idx = currentIdx;
@@ -90,13 +110,23 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         }
     }
 
+    /**
+     * 从本地线程变量中 获取
+     * @return
+     */
     static CodecOutputList newInstance() {
         return CODEC_OUTPUT_LISTS_POOL.get().getOrCreate();
     }
 
     private final CodecOutputListRecycler recycler;
     private int size;
+    /**
+     * 该List 对象的本体
+     */
     private Object[] array;
+    /**
+     * insert 时为 true  recycle 时 为 false
+     */
     private boolean insertSinceRecycled;
 
     private CodecOutputList(CodecOutputListRecycler recycler, int size) {
@@ -186,6 +216,7 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
 
     /**
      * Recycle the array which will clear it and null out all entries in the internal storage.
+     * 重置属性并进行回收
      */
     void recycle() {
         for (int i = 0 ; i < size; i ++) {

@@ -61,9 +61,15 @@ import java.util.concurrent.TimeUnit;
  * <p>So the expected usage of those methods are to be used not too often,
  * accordingly to the traffic shaping configuration.</p></li>
  * </ul>
+ *
+ * 针对 channel 级别的 流量整形对象 所以没有了 @shabable注解  基本跟 Global 是一样的
  */
 public class ChannelTrafficShapingHandler extends AbstractTrafficShapingHandler {
+
     private final ArrayDeque<ToSend> messagesQueue = new ArrayDeque<ToSend>();
+    /**
+     * 这个现在变成channel 级别了???
+     */
     private long queueSize;
 
     /**

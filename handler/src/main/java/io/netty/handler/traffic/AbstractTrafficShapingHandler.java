@@ -101,7 +101,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
 
     /**
      * Max delay in wait
-     * 流量整形的最大时间
+     * 最大等待时间
      */
     protected volatile long maxTime = DEFAULT_MAX_TIME; // default 15 s
 
@@ -170,7 +170,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      *              for Global TSH it is defined as {@value #GLOBAL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX},
      *              for GlobalChannel TSH it is defined as
      *              {@value #GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX}.
-     *              返回用户定义的 下标
+     *              返回用户定义的 下标  默认是1
      */
     protected int userDefinedWritabilityIndex() {
         return CHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX;
@@ -496,7 +496,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                 channel.attr(READ_SUSPENDED).set(false);
                 //设置成 自动读取 并调用 read 这样会将 selector 监听读事件
                 config.setAutoRead(true);
-                //一旦 触发读事件 如果之前没有注册 selector 事件 现在也会注册
+                //触发read 事件 将 OP_READ 重新注册到 selector 上
                 channel.read();
             }
             if (logger.isDebugEnabled()) {
@@ -517,7 +517,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
     }
 
     /**
-     * 触发读取事件
+     * 触发读取事件 这里会 取消在 selector上 read 事件的 注册 在一定时间后恢复
      * @param ctx
      * @param msg
      * @throws Exception
@@ -568,8 +568,9 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                 }
             }
         }
-        //通知 可读
+        //子类重写了 这个方法 就是更新了 lastReadTimestamp
         informReadOperation(ctx, now);
+        //传递 事件  本次还是会 读取到的 只是 一段时间内 都不在selector上监听 read 事件了
         ctx.fireChannelRead(msg);
     }
 
@@ -586,43 +587,63 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
 
     /**
      * Method overridden in GTSH to take into account specific timer for the channel.
+     * 子类会重写 就是更新最后读时间
      * @param now the relative now time in ms
      */
     void informReadOperation(final ChannelHandlerContext ctx, final long now) {
         // default noop
     }
 
+    /**
+     * 判定是否使用 read 悬停功能
+     */
     protected static boolean isHandlerActive(ChannelHandlerContext ctx) {
         Boolean suspended = ctx.channel().attr(READ_SUSPENDED).get();
         return suspended == null || Boolean.FALSE.equals(suspended);
     }
 
+    /**
+     * 调用 read 时会触发到这里
+     * @param ctx
+     */
     @Override
     public void read(ChannelHandlerContext ctx) {
+        //确保关闭了悬停功能才能往下传播
         if (isHandlerActive(ctx)) {
             // For Global Traffic (and Read when using EventLoop in pipeline) : check if READ_SUSPENDED is False
             ctx.read();
         }
     }
 
+    /**
+     * 写数据的 重写
+     * @param ctx 是本 handler 包装成的 ctx
+     * @param msg 写的消息体
+     * @param promise
+     * @throws Exception
+     */
     @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
             throws Exception {
+        //计算消息 大小
         long size = calculateSize(msg);
         long now = TrafficCounter.milliSecondFromNano();
         if (size > 0) {
             // compute the number of ms to wait before continue with the channel
+            // 写也有等待时间
             long wait = trafficCounter.writeTimeToWait(size, writeLimit, maxTime, now);
             if (wait >= MINIMAL_WAIT) {
                 if (logger.isDebugEnabled()) {
                     logger.debug("Write suspend: " + wait + ':' + ctx.channel().config().isAutoRead() + ':'
                             + isHandlerActive(ctx));
                 }
+                //应该是 延时写入
                 submitWrite(ctx, msg, size, wait, now, promise);
                 return;
             }
         }
         // to maintain order of write
+        // 保证写入的 顺序 所以delay 变成0
         submitWrite(ctx, msg, size, 0, now, promise);
     }
 
@@ -633,15 +654,35 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
                 delay, TrafficCounter.milliSecondFromNano(), promise);
     }
 
+    /**
+     * 由子类实现 延时写入功能
+     * @param ctx
+     * @param msg
+     * @param size
+     * @param delay
+     * @param now
+     * @param promise
+     */
     abstract void submitWrite(
             ChannelHandlerContext ctx, Object msg, long size, long delay, long now, ChannelPromise promise);
 
+    /**
+     * 当 channel 被首次注册时 设置用户 定义的 可写能力 这个东西是子类定义的
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        //刚注册是可写入的
         setUserDefinedWritability(ctx, true);
         super.channelRegistered(ctx);
     }
 
+    /**
+     * 设置用户定义的 可写能力  这个一般不用特别定义吧  默认是1 也就是不改变
+     * @param ctx
+     * @param writable
+     */
     void setUserDefinedWritability(ChannelHandlerContext ctx, boolean writable) {
         ChannelOutboundBuffer cob = ctx.channel().unsafe().outboundBuffer();
         if (cob != null) {
@@ -654,14 +695,18 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      * Set if necessary setUserDefinedWritability status.
      * @param delay the computed delay
      * @param queueSize the current queueSize
+     *
+     *                  检测当前是否处在 写入悬停状态
      */
     void checkWriteSuspend(ChannelHandlerContext ctx, long delay, long queueSize) {
+        //超过给定值  不可写
         if (queueSize > maxWriteSize || delay > maxWriteDelay) {
             setUserDefinedWritability(ctx, false);
         }
     }
     /**
      * Explicitly release the Write suspended status.
+     * 接触悬停状态 恢复成可写
      */
     void releaseWriteSuspended(ChannelHandlerContext ctx) {
         setUserDefinedWritability(ctx, true);
@@ -670,6 +715,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
     /**
      * @return the current TrafficCounter (if
      *         channel is still connected)
+     *         返回计数器对象
      */
     public TrafficCounter trafficCounter() {
         return trafficCounter;

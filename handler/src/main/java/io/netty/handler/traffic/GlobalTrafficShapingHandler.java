@@ -73,11 +73,14 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Be sure to call {@link #release()} once this handler is not needed anymore to release all internal resources.
  * This will not shutdown the {@link EventExecutor} as it may be shared, so you need to do this by your own.
+ *
+ * 全局流量整形
  */
 @Sharable
 public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
     /**
      * All queues per channel
+     * 维护了所有 channel 对象 因为这个是 全局 对象 维护了所有channel 对象
      */
     private final ConcurrentMap<Integer, PerChannel> channelQueues = PlatformDependent.newConcurrentHashMap();
 
@@ -92,25 +95,47 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
      */
     long maxGlobalWriteSize = DEFAULT_MAX_SIZE * 100; // default 400MB
 
+    /**
+     * 记录 每个channel 对象
+     */
     private static final class PerChannel {
+        /**
+         * 关联 该 channel 中所有待发送数据体
+         */
         ArrayDeque<ToSend> messagesQueue;
+        /**
+         * 队列的总长度 这里是 Tosend 的 bytes 总数
+         */
         long queueSize;
+        /**
+         * 该channel 的最后写入时间
+         */
         long lastWriteTimestamp;
+        /**
+         * 该channel 的最后读取时间
+         */
         long lastReadTimestamp;
     }
 
     /**
      * Create the global TrafficCounter.
+     * 创建针对全局流量的监控器
      */
     void createGlobalTrafficCounter(ScheduledExecutorService executor) {
         if (executor == null) {
             throw new NullPointerException("executor");
         }
+        //传入了指定的 executor对象 创建的同时如果时间间隔和默认的不同就 开启了定时监控任务
         TrafficCounter tc = new TrafficCounter(this, executor, "GlobalTC", checkInterval);
+        //设置计数器对象
         setTrafficCounter(tc);
+        //一般初始化已经启动了
         tc.start();
     }
 
+    /**
+     * 使用用户定义的 写入标识
+     */
     @Override
     protected int userDefinedWritabilityIndex() {
         return AbstractTrafficShapingHandler.GLOBAL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX;
@@ -202,6 +227,7 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
 
     /**
      * @return the maxGlobalWriteSize default value being 400 MB.
+     * 默认所有channel 能写入的 大小
      */
     public long getMaxGlobalWriteSize() {
         return maxGlobalWriteSize;
@@ -231,11 +257,17 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
 
     /**
      * Release all internal resources of this instance.
+     * 停止计数器的工作
      */
     public final void release() {
         trafficCounter.stop();
     }
 
+    /**
+     * 通过给定的 ctx 获取 对应的 PerChannel 对象
+     * @param ctx
+     * @return
+     */
     private PerChannel getOrSetPerChannel(ChannelHandlerContext ctx) {
         // ensure creation is limited to one thread per channel
         Channel channel = ctx.channel();
@@ -252,12 +284,22 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
         return perChannel;
     }
 
+    /**
+     * 一旦该 handler 在 某个 channel 上注册 就将该channel 保存到 map 中
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
         getOrSetPerChannel(ctx);
         super.handlerAdded(ctx);
     }
 
+    /**
+     * 该handler 移除 对应的channel 也就没有维护的必要了
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
         Channel channel = ctx.channel();
@@ -266,18 +308,24 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
         if (perChannel != null) {
             // write operations need synchronization
             synchronized (perChannel) {
+                //如果 该channel 还是属于活跃状态
                 if (channel.isActive()) {
+                    //获取 所有 未发送数据
                     for (ToSend toSend : perChannel.messagesQueue) {
                         long size = calculateSize(toSend.toSend);
+                        //记录真实写的 bytes 数据
                         trafficCounter.bytesRealWriteFlowControl(size);
+                        //看来这个 queueSize 是数据 bytes 长度
                         perChannel.queueSize -= size;
                         queuesSize.addAndGet(-size);
+                        //通过channel 写数据
                         ctx.write(toSend.toSend, toSend.promise);
                     }
                 } else {
                     queuesSize.addAndGet(-perChannel.queueSize);
                     for (ToSend toSend : perChannel.messagesQueue) {
                         if (toSend.toSend instanceof ByteBuf) {
+                            //防止内存泄漏
                             ((ByteBuf) toSend.toSend).release();
                         }
                     }
@@ -285,16 +333,25 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
                 perChannel.messagesQueue.clear();
             }
         }
+        //恢复可写 和 可读状态
         releaseWriteSuspended(ctx);
         releaseReadSuspended(ctx);
         super.handlerRemoved(ctx);
     }
 
+    /**
+     * 检验等待读取的 时间是否合理
+     * @param ctx
+     * @param wait the wait delay computed in ms
+     * @param now the relative now time in ms
+     * @return
+     */
     @Override
     long checkWaitReadTime(final ChannelHandlerContext ctx, long wait, final long now) {
         Integer key = ctx.channel().hashCode();
         PerChannel perChannel = channelQueues.get(key);
         if (perChannel != null) {
+            //如果等待时间超过了最大等待时间 且当前时间加上等待时间 减上次 读取的时间超过最大时间 也是 减少等待时间 now 不是肯定大于上次读取时间的吗 后面的判断不太懂
             if (wait > maxTime && now + wait - perChannel.lastReadTimestamp > maxTime) {
                 wait = maxTime;
             }
@@ -302,15 +359,24 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
         return wait;
     }
 
+    /**
+     * 这里是 读取到数据 并且 修改了 autoRead 之后 触发的
+     * @param ctx
+     * @param now the relative now time in ms
+     */
     @Override
     void informReadOperation(final ChannelHandlerContext ctx, final long now) {
         Integer key = ctx.channel().hashCode();
         PerChannel perChannel = channelQueues.get(key);
         if (perChannel != null) {
+            //更新最后的 读取时间
             perChannel.lastReadTimestamp = now;
         }
     }
 
+    /**
+     * 应该是需要被 发送的数据吧
+     */
     private static final class ToSend {
         final long relativeTimeAction;
         final Object toSend;
@@ -325,6 +391,15 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
         }
     }
 
+    /**
+     * 应该是延迟写入
+     * @param ctx
+     * @param msg
+     * @param size
+     * @param writedelay  延迟的时间
+     * @param now
+     * @param promise
+     */
     @Override
     void submitWrite(final ChannelHandlerContext ctx, final Object msg,
             final long size, final long writedelay, final long now,
@@ -341,56 +416,78 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
         long delay = writedelay;
         boolean globalSizeExceeded = false;
         // write operations need synchronization
+        // 为 该对象添加 ToSend 对象
         synchronized (perChannel) {
+            //如果 延时为零 并且之前没有别的未写数据 直接 写出
             if (writedelay == 0 && perChannel.messagesQueue.isEmpty()) {
+                //增加real 数据
                 trafficCounter.bytesRealWriteFlowControl(size);
                 ctx.write(msg, promise);
                 perChannel.lastWriteTimestamp = now;
                 return;
             }
+            //延时过大 修改成maxTime
             if (delay > maxTime && now + delay - perChannel.lastWriteTimestamp > maxTime) {
                 delay = maxTime;
             }
             newToSend = new ToSend(delay + now, msg, size, promise);
             perChannel.messagesQueue.addLast(newToSend);
             perChannel.queueSize += size;
+            //全局 待写入数据的值
             queuesSize.addAndGet(size);
+            //针对 channel 级别查看是否设置成不可写入
             checkWriteSuspend(ctx, delay, perChannel.queueSize);
+            //超过全局写入的 值就是超量了
             if (queuesSize.get() > maxGlobalWriteSize) {
                 globalSizeExceeded = true;
             }
         }
         if (globalSizeExceeded) {
+            //设置成不可写入  如果超过全局 写入数据 代表就是 必然不可写了
             setUserDefinedWritability(ctx, false);
         }
+        //就是 now + delay 也就是 未来的 写出时间
         final long futureNow = newToSend.relativeTimeAction;
         final PerChannel forSchedule = perChannel;
         ctx.executor().schedule(new Runnable() {
             @Override
             public void run() {
+                //在未来 进行写出
                 sendAllValid(ctx, forSchedule, futureNow);
             }
         }, delay, TimeUnit.MILLISECONDS);
     }
 
+    /**
+     * 到指定时间后 写出之前延迟的数据
+     * @param ctx
+     * @param perChannel
+     * @param now
+     */
     private void sendAllValid(final ChannelHandlerContext ctx, final PerChannel perChannel, final long now) {
         // write operations need synchronization
         synchronized (perChannel) {
+            //获取 最早的对象
             ToSend newToSend = perChannel.messagesQueue.pollFirst();
             for (; newToSend != null; newToSend = perChannel.messagesQueue.pollFirst()) {
                 if (newToSend.relativeTimeAction <= now) {
+                    //代表可以写了
                     long size = newToSend.size;
+                    //记录真实写入数据
                     trafficCounter.bytesRealWriteFlowControl(size);
                     perChannel.queueSize -= size;
                     queuesSize.addAndGet(-size);
                     ctx.write(newToSend.toSend, newToSend.promise);
+                    //更新些时间
                     perChannel.lastWriteTimestamp = now;
                 } else {
+                    //难怪要使用双端队列 可以灵活的 补回到首部
                     perChannel.messagesQueue.addFirst(newToSend);
                     break;
                 }
             }
             if (perChannel.messagesQueue.isEmpty()) {
+                //这里要保证全写完才恢复成可写
                 releaseWriteSuspended(ctx);
             }
         }

@@ -48,46 +48,55 @@ public class TrafficCounter {
 
     /**
      * Current written bytes
+     * 当前写入的 bytes
      */
     private final AtomicLong currentWrittenBytes = new AtomicLong();
 
     /**
      * Current read bytes
+     * 当前读取的 bytes
      */
     private final AtomicLong currentReadBytes = new AtomicLong();
 
     /**
      * Last writing time during current check interval
+     * 最后一次写入 花了多少时间
      */
     private long writingTime;
 
     /**
      * Last reading delay during current check interval
+     * 最后一次 读取花了多少时间
      */
     private long readingTime;
 
     /**
      * Long life written bytes
+     * 累计 写入 的 数据
      */
     private final AtomicLong cumulativeWrittenBytes = new AtomicLong();
 
     /**
      * Long life read bytes
+     * 累计 读取的数据
      */
     private final AtomicLong cumulativeReadBytes = new AtomicLong();
 
     /**
      * Last Time where cumulative bytes where reset to zero: this time is a real EPOC time (informative only)
+     * 最后一次将 累计的数据清零的时间
      */
     private long lastCumulativeTime;
 
     /**
      * Last writing bandwidth
+     * 上次写入带宽
      */
     private long lastWriteThroughput;
 
     /**
      * Last reading bandwidth
+     * 上次读取带宽
      */
     private long lastReadThroughput;
 
@@ -99,36 +108,43 @@ public class TrafficCounter {
 
     /**
      * Last written bytes number during last check interval
+     * 上次写入的 数据
      */
     private volatile long lastWrittenBytes;
 
     /**
      * Last read bytes number during last check interval
+     * 上次读取的 数据
      */
     private volatile long lastReadBytes;
 
     /**
      * Last future writing time during last check interval
+     * 上次写 花了多少时间
      */
     private volatile long lastWritingTime;
 
     /**
      * Last reading time during last check interval
+     * 上次读取花了多少时间
      */
     private volatile long lastReadingTime;
 
     /**
      * Real written bytes
+     * 真实写入的 数据 啥意思???
      */
     private final AtomicLong realWrittenBytes = new AtomicLong();
 
     /**
      * Real writing bandwidth
+     * 真实带宽
      */
     private long realWriteThroughput;
 
     /**
      * Delay between two captures
+     * 2次检查的间隔时间  默认1秒
      */
     final AtomicLong checkInterval = new AtomicLong(
             AbstractTrafficShapingHandler.DEFAULT_CHECK_INTERVAL);
@@ -137,20 +153,24 @@ public class TrafficCounter {
 
     /**
      * Name of this Monitor
+     * 计数器名字
      */
     final String name;
 
     /**
      * The associated TrafficShapingHandler
+     * 关联的  流量整形对象
      */
     final AbstractTrafficShapingHandler trafficShapingHandler;
 
     /**
      * Executor that will run the monitor
+     * 定时执行 监控功能
      */
     final ScheduledExecutorService executor;
     /**
      * Monitor created once in start()
+     * 代表 监控的 runnable 对象
      */
     Runnable monitor;
     /**
@@ -160,6 +180,7 @@ public class TrafficCounter {
 
     /**
      * Is Monitor active
+     * 监控任务 是否 在进行中
      */
     volatile boolean monitorActive;
 
@@ -180,7 +201,7 @@ public class TrafficCounter {
                 //对记录的 流量信息 做处理
                 trafficShapingHandler.doAccounting(TrafficCounter.this);
             }
-            //这是单次任务 每次触发后设置下一次任务
+            //这是单次任务 每次触发后设置下一次任务 如果更新了时间间隔 在这次任务完成 后 就会使用新的时间间隔
             scheduledFuture = executor.schedule(this, checkInterval.get(), TimeUnit.MILLISECONDS);
         }
     }
@@ -285,6 +306,7 @@ public class TrafficCounter {
         this.executor = executor;
         this.name = name;
 
+        //通过传入的时间间隔进行初始化
         init(checkInterval);
     }
 
@@ -320,9 +342,14 @@ public class TrafficCounter {
         init(checkInterval);
     }
 
+    /**
+     * 根据传入的检查间隔时间进行初始化
+     * @param checkInterval
+     */
     private void init(long checkInterval) {
         // absolute time: informative only
         lastCumulativeTime = System.currentTimeMillis();
+        //设置成当前时间
         writingTime = milliSecondFromNano();
         readingTime = writingTime;
         lastWritingTime = writingTime;
@@ -349,7 +376,7 @@ public class TrafficCounter {
                 lastTime.set(milliSecondFromNano());
             } else {
                 // Start if necessary
-                //重启
+                // 启动 如果已经启动不做处理
                 start();
             }
         }
@@ -485,6 +512,7 @@ public class TrafficCounter {
     /**
      * Reset both read and written cumulative bytes counters and the associated absolute time
      * from System.currentTimeMillis().
+     * 重置积累时间
      */
     public void resetCumulativeTime() {
         lastCumulativeTime = System.currentTimeMillis();
@@ -523,7 +551,7 @@ public class TrafficCounter {
      * 计算 需要 限时多久才能继续读取
      * @param size
      *            the recv size
-     * @param limitTraffic
+     * @param limitTraffic  单位时间内允许读取的bytes 数
      *            the traffic limit in bytes per second
      * @param maxTime
      *            the max time in ms to wait in case of excess of traffic.
@@ -538,7 +566,7 @@ public class TrafficCounter {
         }
         //获取 最后一次记录的时间
         final long lastTimeCheck = lastTime.get();
-        //获取 记录的 btyes 总数
+        //获取 记录的 btyes 总数 这个bytes 应该是 距离上次清空到现在的数量
         long sum = currentReadBytes.get();
         //获取 本次读取耗时
         long localReadingTime = readingTime;
@@ -546,11 +574,12 @@ public class TrafficCounter {
         long lastRB = lastReadBytes;
         //代表距离上次 检测的 时间间隔
         final long interval = now - lastTimeCheck;
-        //读取间隔???
+        //这个 变量啥意思???
         long pastDelay = Math.max(lastReadingTime - lastTimeCheck, 0);
         //如果超过了 最小间隔时间
         if (interval > AbstractTrafficShapingHandler.MINIMAL_WAIT) {
             // Enough interval time to compute shaping
+            // 这个时间 后面2个参数也不知道啥意思
             long time = sum * 1000 / limitTraffic - interval + pastDelay;
             if (time > AbstractTrafficShapingHandler.MINIMAL_WAIT) {
                 if (logger.isDebugEnabled()) {

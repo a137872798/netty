@@ -82,6 +82,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Be sure to call {@link #release()} once this handler is not needed anymore to release all internal resources.
  * This will not shutdown the {@link EventExecutor} as it may be shared, so you need to do this by your own.
+ *
+ * 在global 的 基础上平衡 每个channel 的 读写量
  */
 @Sharable
 public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHandler {
@@ -94,11 +96,13 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
 
     /**
      * Global queues size
+     * 全局队列长度
      */
     private final AtomicLong queuesSize = new AtomicLong();
 
     /**
      * Maximum cumulative writing bytes for one channel among all (as long as channels stay the same)
+     * 累计量
      */
     private final AtomicLong cumulativeWrittenBytes = new AtomicLong();
 
@@ -110,6 +114,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
     /**
      * Max size in the list before proposing to stop writing new objects from next handlers
      * for all channel (global)
+     * 所有channel 允许 延时的 数据量超过这个就不能在写入数据了
      */
     volatile long maxGlobalWriteSize = DEFAULT_MAX_SIZE * 100; // default 400MB
 
@@ -145,7 +150,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
      * Create the global TrafficCounter
      */
     void createGlobalTrafficCounter(ScheduledExecutorService executor) {
-        // Default
+        // Default   设置最大偏差
         setMaxDeviation(DEFAULT_DEVIATION, DEFAULT_SLOWDOWN, DEFAULT_ACCELERATION);
         if (executor == null) {
             throw new IllegalArgumentException("Executor must not be null");
@@ -155,6 +160,10 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
         tc.start();
     }
 
+    /**
+     * 使用特殊的读写标识
+     * @return
+     */
     @Override
     protected int userDefinedWritabilityIndex() {
         return AbstractTrafficShapingHandler.GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX;
@@ -294,6 +303,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
      * @param accelerationFactor
      *            the factor set as -x% to the too slow client (maximal value being 0, meaning no
      *            acceleration factor), default being -10% (-0.1).
+     *            设置最大偏差 默认是 0.1 0.4 -0.1
      */
     public void setMaxDeviation(float maxDeviation, float slowDownFactor, float accelerationFactor) {
         if (maxDeviation > MAX_DEVIATION) {
@@ -305,11 +315,17 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
         if (accelerationFactor > 0) {
             throw new IllegalArgumentException("accelerationFactor must be <= 0");
         }
+        //0.1
         this.maxDeviation = maxDeviation;
+        //1.4
         this.accelerationFactor = 1 + accelerationFactor;
+        //0.9
         this.slowDownFactor = 1 + slowDownFactor;
     }
 
+    /**
+     * 计算偏差堆积量
+     */
     private void computeDeviationCumulativeBytes() {
         // compute the maximum cumulativeXxxxBytes among still connected Channels
         long maxWrittenBytes = 0;
@@ -317,6 +333,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
         long minWrittenBytes = Long.MAX_VALUE;
         long minReadBytes = Long.MAX_VALUE;
         for (PerChannel perChannel : channelQueues.values()) {
+            //获取堆积量
             long value = perChannel.channelTrafficCounter.cumulativeWrittenBytes();
             if (maxWrittenBytes < value) {
                 maxWrittenBytes = value;
@@ -324,6 +341,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
             if (minWrittenBytes > value) {
                 minWrittenBytes = value;
             }
+            //这里是在矫正什么  什么情况会出现偏差
             value = perChannel.channelTrafficCounter.cumulativeReadBytes();
             if (maxReadBytes < value) {
                 maxReadBytes = value;
@@ -332,6 +350,7 @@ public class GlobalChannelTrafficShapingHandler extends AbstractTrafficShapingHa
                 minReadBytes = value;
             }
         }
+        //多个channel
         boolean multiple = channelQueues.size() > 1;
         readDeviationActive = multiple && minReadBytes < maxReadBytes / 2;
         writeDeviationActive = multiple && minWrittenBytes < maxWrittenBytes / 2;
