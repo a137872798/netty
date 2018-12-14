@@ -48,6 +48,8 @@ import java.util.List;
  * Be aware that you need to call {@link ReferenceCounted#retain()} on messages that are just passed through if they
  * are of type {@link ReferenceCounted}. This is needed as the {@link MessageToMessageEncoder} will call
  * {@link ReferenceCounted#release()} on encoded messages.
+ *
+ * 将某种消息 转换成 另一种
  */
 public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerAdapter {
 
@@ -86,6 +88,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
                 try {
+                    //这里 用CodecOutputList 来保存了生成的 编码结果对象
                     encode(ctx, cast, out);
                 } finally {
                     ReferenceCountUtil.release(cast);

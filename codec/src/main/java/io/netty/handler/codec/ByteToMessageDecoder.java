@@ -323,7 +323,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
     protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception { }
 
     /**
-     * 读取到数据应该是要开始解码了
+     * 读取到数据应该是要开始解码了  这里没有传递 异常 而是抛出了
      * @param ctx
      * @param msg
      * @throws Exception
@@ -575,7 +575,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
                 //能进入到这不就只能是 0了吗  就是解码失败了
                 if (outSize == out.size()) {
-                    //代表读到末尾了
+                    //如果 可读的 指针 没有发生变化 就不 解码解不动了 就放弃
                     if (oldInputLength == in.readableBytes()) {
                         break;
                     } else {
@@ -670,6 +670,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
         cumulation = alloc.buffer(oldCumulation.readableBytes() + readable);
         //写入的 就是 oldCumulation.readableBytes() 的大小 这样 刚好就 剩余 readable 的大小
         cumulation.writeBytes(oldCumulation);
+        //减少一次引用
         oldCumulation.release();
         return cumulation;
     }

@@ -20,9 +20,13 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * A skeletal {@link Future} implementation which represents a {@link Future} which has been completed already.
+ * 这里涉及到 完成任务
  */
 public abstract class CompleteFuture<V> extends AbstractFuture<V> {
 
+    /**
+     * 执行该 future使用的 executor 对象
+     */
     private final EventExecutor executor;
 
     /**
@@ -78,6 +82,7 @@ public abstract class CompleteFuture<V> extends AbstractFuture<V> {
 
     @Override
     public Future<V> await() throws InterruptedException {
+        //如果当前线程被中断 返回异常
         if (Thread.interrupted()) {
             throw new InterruptedException();
         }

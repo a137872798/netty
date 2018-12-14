@@ -42,10 +42,18 @@ import io.netty.util.internal.TypeParameterMatcher;
  *         }
  *     }
  * </pre>
+ *
+ * 编码器对象
  */
 public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdapter {
 
+    /**
+     * 泛型匹配对象
+     */
     private final TypeParameterMatcher matcher;
+    /**
+     * 是否 尝试使用 direct 内存 因为 网络传输 更适合 使用 direct内存
+     */
     private final boolean preferDirect;
 
     /**
@@ -70,6 +78,7 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
      *                              {@link ByteBuf}, which is backed by an byte array.
      */
     protected MessageToByteEncoder(boolean preferDirect) {
+        //找到对应的 类型匹配器  这里是在 初始化时 声明泛型了
         matcher = TypeParameterMatcher.find(this, MessageToByteEncoder.class, "I");
         this.preferDirect = preferDirect;
     }
@@ -99,17 +108,21 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         ByteBuf buf = null;
         try {
+            //判断 msg 是否是 指定类型
             if (acceptOutboundMessage(msg)) {
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
                 buf = allocateBuffer(ctx, cast, preferDirect);
                 try {
+                    //这里已经完成转型了
                     encode(ctx, cast, buf);
                 } finally {
                     ReferenceCountUtil.release(cast);
                 }
 
+                //代表将内如写入到了 buf 中
                 if (buf.isReadable()) {
+                    //传递写事件
                     ctx.write(buf, promise);
                 } else {
                     buf.release();
@@ -117,6 +130,7 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
                 }
                 buf = null;
             } else {
+                //否则 不处理 传递到下面
                 ctx.write(msg, promise);
             }
         } catch (EncoderException e) {

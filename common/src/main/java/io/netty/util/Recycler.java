@@ -35,6 +35,8 @@ import static java.lang.Math.min;
  * Light-weight object pool based on a thread-local stack.
  *
  * @param <T> the type of the pooled object
+ *
+ *           netty 的回收对象 保证资源重复利用
  */
 public abstract class Recycler<T> {
 
@@ -48,15 +50,28 @@ public abstract class Recycler<T> {
         }
     };
     private static final AtomicInteger ID_GENERATOR = new AtomicInteger(Integer.MIN_VALUE);
+    /**
+     * 生成 唯一id
+     */
     private static final int OWN_THREAD_ID = ID_GENERATOR.getAndIncrement();
+    /**
+     * 每条线程 初始最大容量
+     */
     private static final int DEFAULT_INITIAL_MAX_CAPACITY_PER_THREAD = 4 * 1024; // Use 4k instances as default.
+    /**
+     * 每条线程 的最大容量
+     */
     private static final int DEFAULT_MAX_CAPACITY_PER_THREAD;
+    /**
+     * 初始容量
+     */
     private static final int INITIAL_CAPACITY;
     private static final int MAX_SHARED_CAPACITY_FACTOR;
     private static final int MAX_DELAYED_QUEUES_PER_THREAD;
     private static final int LINK_CAPACITY;
     private static final int RATIO;
 
+    //从系统变量中初始化对应属性
     static {
         // In the future, we might have different maxCapacity for different object types.
         // e.g. io.netty.recycler.maxCapacity.writeTask
@@ -108,6 +123,7 @@ public abstract class Recycler<T> {
     private final int ratioMask;
     private final int maxDelayedQueuesPerThread;
 
+    //在本地线程中创建了一个栈对象 这个对象就是保存 所有的Recycle 回收的对象
     private final FastThreadLocal<Stack<T>> threadLocal = new FastThreadLocal<Stack<T>>() {
         @Override
         protected Stack<T> initialValue() {
@@ -115,10 +131,12 @@ public abstract class Recycler<T> {
                     ratioMask, maxDelayedQueuesPerThread);
         }
 
+        //当 该对象被移除后
         @Override
         protected void onRemoval(Stack<T> value) {
             // Let us remove the WeakOrderQueue from the WeakHashMap directly if its safe to remove some overhead
             if (value.threadRef.get() == Thread.currentThread()) {
+                //
                if (DELAYED_RECYCLED.isSet()) {
                    DELAYED_RECYCLED.get().remove(value);
                }
@@ -152,12 +170,18 @@ public abstract class Recycler<T> {
         }
     }
 
+    /**
+     * 获取 可回收对象
+     * @return
+     */
     @SuppressWarnings("unchecked")
     public final T get() {
         if (maxCapacityPerThread == 0) {
             return newObject((Handle<T>) NOOP_HANDLE);
         }
+        //获取该线程的 stack 对象
         Stack<T> stack = threadLocal.get();
+        //弹出 handler对象
         DefaultHandle<T> handle = stack.pop();
         if (handle == null) {
             handle = stack.newHandle();
@@ -198,30 +222,50 @@ public abstract class Recycler<T> {
         void recycle(T object);
     }
 
+    /**
+     * 将 需要被回收的对象封装成 handle 并压入栈中
+     * @param <T>
+     */
     static final class DefaultHandle<T> implements Handle<T> {
         private int lastRecycledId;
         private int recycleId;
 
+        /**
+         * 已经被回收过
+         */
         boolean hasBeenRecycled;
 
+        /**
+         * 属于哪个栈下
+         */
         private Stack<?> stack;
+        /**
+         * 维护的被回收对象
+         */
         private Object value;
 
         DefaultHandle(Stack<?> stack) {
             this.stack = stack;
         }
 
+        /**
+         * 重写 了handler 的 回收方法 也就是压栈
+         * @param object
+         */
         @Override
         public void recycle(Object object) {
+            //该handler 被创建时 就绑定在某个对象上 如果 回收的对象不是本对象 直接抛出异常
             if (object != value) {
                 throw new IllegalArgumentException("object does not belong to handle");
             }
 
+            //获取关联的 栈对象
             Stack<?> stack = this.stack;
             if (lastRecycledId != recycleId || stack == null) {
                 throw new IllegalStateException("recycled already");
             }
 
+            //入栈
             stack.push(this);
         }
     }
@@ -234,8 +278,11 @@ public abstract class Recycler<T> {
         }
     };
 
-    // a queue that makes only moderate guarantees about visibility: items are seen in the correct order,
-    // but we aren't absolutely guaranteed to ever see anything at all, thereby keeping the queue cheap to maintain
+    /**
+     * a queue that makes only moderate guarantees about visibility: items are seen in the correct order,
+     * but we aren't absolutely guaranteed to ever see anything at all, thereby keeping the queue cheap to maintain
+     * 存储其他线程 回收到的对象
+     */
     private static final class WeakOrderQueue {
 
         static final WeakOrderQueue DUMMY = new WeakOrderQueue();
@@ -444,6 +491,11 @@ public abstract class Recycler<T> {
         }
     }
 
+    /**
+     * recycle 被封装后的 组成的 handler就是存放在这个 stack 中
+     * Stack 与线程绑定
+     * @param <T>
+     */
     static final class Stack<T> {
 
         // we keep a queue of per-thread queues, which is appended to once only, each time a new thread other
@@ -458,6 +510,9 @@ public abstract class Recycler<T> {
         // The biggest issue is if we do not use a WeakReference the Thread may not be able to be collected at all if
         // the user will store a reference to the DefaultHandle somewhere and never clear this reference (or not clear
         // it in a timely manner).
+        /**
+         * 这个stack 绑定的线程
+         */
         final WeakReference<Thread> threadRef;
         final AtomicInteger availableSharedCapacity;
         final int maxDelayedQueues;
@@ -585,10 +640,16 @@ public abstract class Recycler<T> {
             return success;
         }
 
+        /**
+         * 入栈操作
+         * @param item
+         */
         void push(DefaultHandle<?> item) {
             Thread currentThread = Thread.currentThread();
+            //如果是在 创建Stack 的线程 回收对象
             if (threadRef.get() == currentThread) {
                 // The current Thread is the thread that belongs to the Stack, we can try to push the object now.
+                // 直接入栈就可以
                 pushNow(item);
             } else {
                 // The current Thread is not the one that belongs to the Stack
@@ -598,6 +659,10 @@ public abstract class Recycler<T> {
             }
         }
 
+        /**
+         * 进行入栈操作
+         * @param item
+         */
         private void pushNow(DefaultHandle<?> item) {
             if ((item.recycleId | item.lastRecycledId) != 0) {
                 throw new IllegalStateException("recycled already");

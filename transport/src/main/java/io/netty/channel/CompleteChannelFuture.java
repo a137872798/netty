@@ -23,9 +23,13 @@ import io.netty.util.concurrent.GenericFutureListener;
 /**
  * A skeletal {@link ChannelFuture} implementation which represents a
  * {@link ChannelFuture} which has been completed already.
+ *
  */
 abstract class CompleteChannelFuture extends CompleteFuture<Void> implements ChannelFuture {
 
+    /**
+     * 该future 是针对哪个 channel 的
+     */
     private final Channel channel;
 
     /**
@@ -45,6 +49,7 @@ abstract class CompleteChannelFuture extends CompleteFuture<Void> implements Cha
     protected EventExecutor executor() {
         EventExecutor e = super.executor();
         if (e == null) {
+            //默认 使用 channel绑定的 eventloop
             return channel().eventLoop();
         } else {
             return e;

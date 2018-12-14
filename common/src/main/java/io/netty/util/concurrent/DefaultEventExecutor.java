@@ -21,6 +21,8 @@ import java.util.concurrent.ThreadFactory;
 /**
  * Default {@link SingleThreadEventExecutor} implementation which just execute all submitted task in a
  * serial fashion.
+ *
+ * 这个应该是 能够设置到AbstractChannelHandlerContext.execute 的线程池对象
  */
 public final class DefaultEventExecutor extends SingleThreadEventExecutor {
 

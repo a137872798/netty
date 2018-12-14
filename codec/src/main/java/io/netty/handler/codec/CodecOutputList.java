@@ -25,7 +25,7 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 /**
  * Special {@link AbstractList} implementation which is used within our codec base classes.
- * 用来 帮助编解码 的List 对象
+ * 一个 可回收重复使用的List 对象 用来 帮助编解码
  */
 final class CodecOutputList extends AbstractList<Object> implements RandomAccess {
 
@@ -36,6 +36,9 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         }
     };
 
+    /**
+     * 使用线程本地变量的方式
+     */
     private static final FastThreadLocal<CodecOutputLists> CODEC_OUTPUT_LISTS_POOL =
             new FastThreadLocal<CodecOutputLists>() {
                 @Override
@@ -53,7 +56,7 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
     }
 
     private static final class CodecOutputLists implements CodecOutputListRecycler {
-        //存放 需要被 编解码的 对象列表
+        //代表 可缓存的 List 对象
         private final CodecOutputList[] elements;
         private final int mask;
 

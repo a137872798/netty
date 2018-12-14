@@ -24,15 +24,19 @@ import java.util.concurrent.TimeoutException;
  * Abstract {@link Future} implementation which does not allow for cancellation.
  *
  * @param <V>
+ *
+ *     netty future 基类实现
  */
 public abstract class AbstractFuture<V> implements Future<V> {
 
     @Override
     public V get() throws InterruptedException, ExecutionException {
+        //阻塞线程 当线程 解除阻塞时 查看结果
         await();
 
         Throwable cause = cause();
         if (cause == null) {
+            //代表 没有异常有结果了
             return getNow();
         }
         if (cause instanceof CancellationException) {
@@ -43,6 +47,7 @@ public abstract class AbstractFuture<V> implements Future<V> {
 
     @Override
     public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+        //阻塞指定时间 看有没有结果 没有就 返回超时异常
         if (await(timeout, unit)) {
             Throwable cause = cause();
             if (cause == null) {

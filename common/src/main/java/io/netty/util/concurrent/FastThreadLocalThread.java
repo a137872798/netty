@@ -90,6 +90,8 @@ public class FastThreadLocalThread extends Thread {
 
     /**
      * Returns {@code true} if {@link FastThreadLocal#removeAll()} will be called once {@link #run()} completes.
+     *
+     * 是否会自动清理
      */
     @UnstableApi
     public boolean willCleanupFastThreadLocals() {

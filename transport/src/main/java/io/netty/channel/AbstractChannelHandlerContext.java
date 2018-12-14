@@ -95,6 +95,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
 
     // Will be set to null if no child executor should be used, otherwise it will be set to the
     // child executor. 如果没有针对 该 context 设置 独立的 executor 就会为null 那么事件处理就会使用channel.eventloop
+    // 可以选择 设置 DefaultEventExecutor
     final EventExecutor executor;
     private ChannelFuture succeededFuture;
 
@@ -181,10 +182,16 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         //获取上下文的 executor 也就是eventloop 对象
         EventExecutor executor = next.executor();
         //本线程中直接执行 没有使用加入到 队列的方式 也就是这个事件的优先级是最高的
+
+        // 如果 本对象自身设置了 evntloop 比如DefaultEventExecutor 在handler 中没有创建新线程的情况下 是会走 第一个分支
+        // 然后传递到下个 节点会使用下个节点自身的 executor 对象 默认就是 nioeventloop
+        // 如果在 使用DefaultEventExecutor 的情况下 并且 还开启了 外部线程就是else 的分支 尝试从 任务队列中拉取任务并执行
+        // DefaultEventExecutor 对象相当于 舍弃selector 功能的 nioeventloop 对象
         if (executor.inEventLoop()) {
             next.invokeChannelRegistered();
         } else {
-            //如果不是在独占线程中 加入到任务队列  这个execute 有一个 addTask(task)
+            //如果不是在独占线程中也就是在外部线程 执行该任务 加入到任务队列  这个execute 有一个 addTask(task)
+            //只要该对象是 eventExecutor execute 就是将任务存入任务队列 而不是直接执行
             executor.execute(new Runnable() {
                 @Override
                 public void run() {

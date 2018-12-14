@@ -46,6 +46,9 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
 
     public static final Object UNSET = new Object();
 
+    /**
+     * map 对应的清理标识
+     */
     private BitSet cleanerFlags;
 
     static {
@@ -74,6 +77,11 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         }
     }
 
+    /**
+     * 快速 获取 线程的 InternalThreadLocalMap属性
+     * @param thread
+     * @return
+     */
     private static InternalThreadLocalMap fastGet(FastThreadLocalThread thread) {
         InternalThreadLocalMap threadLocalMap = thread.threadLocalMap();
         if (threadLocalMap == null) {
@@ -126,6 +134,10 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         super(newIndexedVariableTable());
     }
 
+    /**
+     * 默认大小 32 并用unset 填充
+     * @return
+     */
     private static Object[] newIndexedVariableTable() {
         Object[] array = new Object[32];
         Arrays.fill(array, UNSET);
@@ -291,14 +303,18 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
 
     /**
      * @return {@code true} if and only if a new thread-local variable has been created
+     * 为指定下标设置属性  这个index 是所有线程共用的  这个map 是归属于某个线程的
+     * 也就是说该 map 设置的index 可能会超过本线程的所有 FastThreadLocal 总和
      */
     public boolean setIndexedVariable(int index, Object value) {
         Object[] lookup = indexedVariables;
         if (index < lookup.length) {
             Object oldValue = lookup[index];
             lookup[index] = value;
+            //一开始应该都是用这个对象填充
             return oldValue == UNSET;
         } else {
+            //扩容
             expandIndexedVariableTableAndSet(index, value);
             return true;
         }
@@ -337,6 +353,11 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         return index < lookup.length && lookup[index] != UNSET;
     }
 
+    /**
+     * 指定的 index (FastThreadLocal) 是否设置了 清理标识
+     * @param index
+     * @return
+     */
     public boolean isCleanerFlagSet(int index) {
         return cleanerFlags != null && cleanerFlags.get(index);
     }

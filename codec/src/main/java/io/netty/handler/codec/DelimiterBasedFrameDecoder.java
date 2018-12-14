@@ -54,16 +54,38 @@ import java.util.List;
  * | ABC\nDEF |
  * +----------+
  * </pre>
+ *
+ * 将任意 符号作为解码器并进行解码
  */
 public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
 
+    /**
+     * 使用的指定的分隔符对象
+     */
     private final ByteBuf[] delimiters;
+    /**
+     * 规定的 最大单元信息的长度
+     */
     private final int maxFrameLength;
+    /**
+     * 是否跳过 分隔符
+     */
     private final boolean stripDelimiter;
+    /**
+     * 是否 在 超过长度 后 直接提示异常
+     */
     private final boolean failFast;
+    /**
+     * 数据体是否过长
+     */
     private boolean discardingTooLongFrame;
+    /**
+     * 当 过长时 记录长度
+     */
     private int tooLongFrameLength;
-    /** Set only when decoding with "\n" and "\r\n" as the delimiter.  */
+    /** Set only when decoding with "\n" and "\r\n" as the delimiter.
+     *  基于换行符的 解码器对象
+     * */
     private final LineBasedFrameDecoder lineBasedDecoder;
 
     /**
@@ -171,14 +193,19 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
             throw new IllegalArgumentException("empty delimiters");
         }
 
+        //当传入的 bytebuf 是基于分隔符的 直接使用 LineBasedFrameDecoder 完成解码
+        //isSubclass 代表本类是DelimiterBasedFrameDecoder
         if (isLineBased(delimiters) && !isSubclass()) {
             lineBasedDecoder = new LineBasedFrameDecoder(maxFrameLength, stripDelimiter, failFast);
             this.delimiters = null;
         } else {
+            //记录 分隔符数组
             this.delimiters = new ByteBuf[delimiters.length];
             for (int i = 0; i < delimiters.length; i ++) {
                 ByteBuf d = delimiters[i];
+                //判断 该 分隔符 是否合法
                 validateDelimiter(d);
+                //创建 分片对象
                 this.delimiters[i] = d.slice(d.readerIndex(), d.readableBytes());
             }
             lineBasedDecoder = null;
@@ -188,7 +215,9 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
         this.failFast = failFast;
     }
 
-    /** Returns true if the delimiters are "\n" and "\r\n".  */
+    /** Returns true if the delimiters are "\n" and "\r\n".
+     *  判断自定义分隔符 是否是 \r\n or \n
+     * */
     private static boolean isLineBased(final ByteBuf[] delimiters) {
         if (delimiters.length != 2) {
             return false;
@@ -211,6 +240,13 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
         return getClass() != DelimiterBasedFrameDecoder.class;
     }
 
+    /**
+     * 解码
+     * @param ctx           the {@link ChannelHandlerContext} which this {@link ByteToMessageDecoder} belongs to
+     * @param in            the {@link ByteBuf} from which to read data
+     * @param out           the {@link List} to which decoded messages should be added
+     * @throws Exception
+     */
     @Override
     protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         Object decoded = decode(ctx, in);
@@ -226,15 +262,19 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
      * @param   buffer          the {@link ByteBuf} from which to read data
      * @return  frame           the {@link ByteBuf} which represent the frame or {@code null} if no frame could
      *                          be created.
+     *                          解码的核心逻辑
      */
     protected Object decode(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception {
+        //默认先使用 基于 分隔符的 解码器 进行解码
         if (lineBasedDecoder != null) {
             return lineBasedDecoder.decode(ctx, buffer);
         }
         // Try all delimiters and choose the delimiter which yields the shortest frame.
         int minFrameLength = Integer.MAX_VALUE;
+        //记录 最早找到的 匹配的 分隔符对象
         ByteBuf minDelim = null;
         for (ByteBuf delim: delimiters) {
+            //获取 最先符合分割符的 下标
             int frameLength = indexOf(buffer, delim);
             if (frameLength >= 0 && frameLength < minFrameLength) {
                 minFrameLength = frameLength;
@@ -242,27 +282,34 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
             }
         }
 
+        //代表找到了 分隔符
         if (minDelim != null) {
+            //当前分隔符大小
             int minDelimLength = minDelim.capacity();
             ByteBuf frame;
 
+            //如果上次获取的 数据超标
             if (discardingTooLongFrame) {
                 // We've just finished discarding a very large frame.
                 // Go back to the initial state.
                 discardingTooLongFrame = false;
+                // 跳过 匹配到的部分
                 buffer.skipBytes(minFrameLength + minDelimLength);
 
                 int tooLongFrameLength = this.tooLongFrameLength;
                 this.tooLongFrameLength = 0;
+                //提示异常信息
                 if (!failFast) {
                     fail(tooLongFrameLength);
                 }
                 return null;
             }
 
+            //如果超过最大长度
             if (minFrameLength > maxFrameLength) {
                 // Discard read frame.
                 buffer.skipBytes(minFrameLength + minDelimLength);
+                //这里直接抛出异常  因为 这次已经获取了完整的 数据所以直接提示就可以了
                 fail(minFrameLength);
                 return null;
             }
@@ -276,7 +323,9 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
 
             return frame;
         } else {
+            //没有找到的情况  并且上次没有需要丢弃的
             if (!discardingTooLongFrame) {
+                //记录需要丢弃的  如果没有到 最大大小 就等下次的数据一起再找找分隔符
                 if (buffer.readableBytes() > maxFrameLength) {
                     // Discard the content of the buffer until a delimiter is found.
                     tooLongFrameLength = buffer.readableBytes();
@@ -288,6 +337,7 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
                 }
             } else {
                 // Still discarding the buffer since a delimiter is not found.
+                // 增加需要丢弃的量
                 tooLongFrameLength += buffer.readableBytes();
                 buffer.skipBytes(buffer.readableBytes());
             }
@@ -336,6 +386,10 @@ public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
         return -1;
     }
 
+    /**
+     * 判断 分隔符是否合法
+     * @param delimiter
+     */
     private static void validateDelimiter(ByteBuf delimiter) {
         if (delimiter == null) {
             throw new NullPointerException("delimiter");

@@ -95,6 +95,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         executor = null;
     }
 
+    /**
+     * 设置成功 结果  设置失败 抛出异常
+     * @param result
+     * @return
+     */
     @Override
     public Promise<V> setSuccess(V result) {
         if (setSuccess0(result)) {
@@ -104,6 +109,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         throw new IllegalStateException("complete already: " + this);
     }
 
+    /**
+     * 尝试设置结果 如果已经被设置了 返回false
+     * @param result
+     * @return
+     */
     @Override
     public boolean trySuccess(V result) {
         if (setSuccess0(result)) {
@@ -112,6 +122,8 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
         return false;
     }
+
+    //失败的 和成功的 差不多
 
     @Override
     public Promise<V> setFailure(Throwable cause) {
@@ -141,17 +153,26 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         if (RESULT_UPDATER.compareAndSet(this, null, UNCANCELLABLE)) {
             return true;
         }
+        //代表已经设置了 结果
         Object result = this.result;
-        //!isDone0 代表已经被设置成 不可中断  或者异常类型不是cancel异常
+        //代表设置的结果就是 不可中断 代表 已经处在不可中断的状态了  后半段 代表 只要当前不是已经被cancel 都是 设置成功了???
         return !isDone0(result) || !isCancelled0(result);
     }
 
+    /**
+     * 获取结果 判断
+     * @return
+     */
     @Override
     public boolean isSuccess() {
         Object result = this.result;
         return result != null && result != UNCANCELLABLE && !(result instanceof CauseHolder);
     }
 
+    /**
+     * 还未设置 result 就是可以中断 不可中断 result 就是 UNCANCELLABLE
+     * @return
+     */
     @Override
     public boolean isCancellable() {
         return result == null;
@@ -163,6 +184,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return (result instanceof CauseHolder) ? ((CauseHolder) result).cause : null;
     }
 
+    /**
+     * 添加监听器
+     * @param listener
+     * @return
+     */
     @Override
     public Promise<V> addListener(GenericFutureListener<? extends Future<? super V>> listener) {
         checkNotNull(listener, "listener");
@@ -171,6 +197,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             addListener0(listener);
         }
 
+        //如果任务已经完成了 直接通知
         if (isDone()) {
             notifyListeners();
         }
@@ -225,6 +252,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return this;
     }
 
+    /**
+     * 阻塞当前线程  该方法 是 可以通过 interrupt 进行唤醒的
+     * @return
+     * @throws InterruptedException
+     */
     @Override
     public Promise<V> await() throws InterruptedException {
         if (isDone()) {
@@ -235,12 +267,15 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             throw new InterruptedException(toString());
         }
 
+        //检验死锁
         checkDeadLock();
 
         synchronized (this) {
+            //增加等待的线程数
             while (!isDone()) {
                 incWaiters();
                 try {
+                    //当前线程沉睡  这时 如果 interrupt 会 抛出异常 终止 await 的状态
                     wait();
                 } finally {
                     decWaiters();
@@ -250,6 +285,10 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return this;
     }
 
+    /**
+     * checkDeadLock 代表 该方法不能由 eventloop 线程调用 必须由外部线程调用
+     * @return
+     */
     @Override
     public Promise<V> awaitUninterruptibly() {
         if (isDone()) {
@@ -260,12 +299,15 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
 
         boolean interrupted = false;
         synchronized (this) {
+            //这个 死循环 实现了 unInterrupted 因为 只要没完成 还是会再次wait
             while (!isDone()) {
                 incWaiters();
                 try {
                     wait();
                 } catch (InterruptedException e) {
                     // Interrupted while waiting.
+                    // 代表等待途中被唤醒过 但是 不处理该异常 线程进入下个loop还是处在沉睡状态
+                    // 这时线程的 interrupt 标识 还是false
                     interrupted = true;
                 } finally {
                     decWaiters();
@@ -273,6 +315,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             }
         }
 
+        //这里补上对该线程中断状态 的修改
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
@@ -280,6 +323,13 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return this;
     }
 
+    /**
+     * 设置等待 指定时间 并判断是否返回了结果
+     * @param timeout
+     * @param unit
+     * @return
+     * @throws InterruptedException
+     */
     @Override
     public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
         return await0(unit.toNanos(timeout), true);
@@ -296,6 +346,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             return await0(unit.toNanos(timeout), false);
         } catch (InterruptedException e) {
             // Should not be raised at all.
+            // 这种情况应该是不会出现的
             throw new InternalError();
         }
     }
@@ -310,6 +361,10 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
     }
 
+    /**
+     * 立即返回结果
+     * @return
+     */
     @SuppressWarnings("unchecked")
     @Override
     public V getNow() {
@@ -328,6 +383,8 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
      */
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
+        //如果是 不可中断任务 的状态 这里的if 判断就过不去
+        //这里设置的 是 被关闭的异常
         if (RESULT_UPDATER.compareAndSet(this, null, CANCELLATION_CAUSE_HOLDER)) {
             //唤醒调用 sync 的线程
             checkNotifyWaiters();
@@ -348,9 +405,15 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return isDone0(result);
     }
 
+    /**
+     * 阻塞当前线程 等待唤醒
+     * @return
+     * @throws InterruptedException
+     */
     @Override
     public Promise<V> sync() throws InterruptedException {
         await();
+        //如果有异常 要抛出
         rethrowIfFailed();
         return this;
     }
@@ -405,8 +468,10 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return executor;
     }
 
+    //检验死锁
     protected void checkDeadLock() {
         EventExecutor e = executor();
+        //就是 被阻断的 不能是 独占线程 这样会导致 事件循环瘫痪
         if (e != null && e.inEventLoop()) {
             throw new BlockingOperationException(toString());
         }
@@ -429,10 +494,15 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         notifyListenerWithStackOverFlowProtection(eventExecutor, future, listener);
     }
 
+    /**
+     * 触发 设置的 监听器对象
+     */
     private void notifyListeners() {
         EventExecutor executor = executor();
+        //在本线程中直接 触发 监听器
         if (executor.inEventLoop()) {
             final InternalThreadLocalMap threadLocals = InternalThreadLocalMap.get();
+            //监听器 链深度 每次唤醒都会增加1
             final int stackDepth = threadLocals.futureListenerStackDepth();
             if (stackDepth < MAX_LISTENER_STACK_DEPTH) {
                 threadLocals.setFutureListenerStackDepth(stackDepth + 1);
@@ -521,6 +591,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
     }
 
+    /**
+     * 执行监听器回调
+     * @param future
+     * @param l
+     */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private static void notifyListener0(Future future, GenericFutureListener l) {
         try {
@@ -532,12 +607,19 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
     }
 
+    /**
+     * 为promise 设置监听器对象
+     * @param listener
+     */
     private void addListener0(GenericFutureListener<? extends Future<? super V>> listener) {
+        //单个监听器 直接设置
         if (listeners == null) {
             listeners = listener;
+            //2个以上
         } else if (listeners instanceof DefaultFutureListeners) {
             ((DefaultFutureListeners) listeners).add(listener);
         } else {
+            //2个监听器
             listeners = new DefaultFutureListeners((GenericFutureListener<?>) listeners, listener);
         }
     }
@@ -550,29 +632,52 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
     }
 
+    /**
+     * 设置 结果 如果result 为 null 使用Success 做占位符
+     * @param result
+     * @return
+     */
     private boolean setSuccess0(V result) {
         return setValue0(result == null ? SUCCESS : result);
     }
 
+    /**
+     * 设置 异常 如果 cause 为null 抛出异常
+     * @param cause
+     * @return
+     */
     private boolean setFailure0(Throwable cause) {
         return setValue0(new CauseHolder(checkNotNull(cause, "cause")));
     }
 
+    /**
+     * 原子更新结果字段
+     * @param objResult
+     * @return
+     */
     private boolean setValue0(Object objResult) {
+        //如果是 不可中断 或者 没有任何状态 设置结果 如果已经有结果 不设置
         if (RESULT_UPDATER.compareAndSet(this, null, objResult) ||
             RESULT_UPDATER.compareAndSet(this, UNCANCELLABLE, objResult)) {
+            //检查有没有需要唤醒的 线程
             checkNotifyWaiters();
             return true;
         }
         return false;
     }
 
+    /**
+     * 唤醒等待的线程
+     */
     private synchronized void checkNotifyWaiters() {
         if (waiters > 0) {
             notifyAll();
         }
     }
 
+    /**
+     * 增加 阻塞的线程
+     */
     private void incWaiters() {
         if (waiters == Short.MAX_VALUE) {
             throw new IllegalStateException("too many waiters: " + this);
@@ -580,10 +685,16 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         ++waiters;
     }
 
+    /**
+     * 减少阻塞的线程
+     */
     private void decWaiters() {
         --waiters;
     }
 
+    /**
+     * 重新抛出异常
+     */
     private void rethrowIfFailed() {
         Throwable cause = cause();
         if (cause == null) {
@@ -593,6 +704,13 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         PlatformDependent.throwException(cause);
     }
 
+    /**
+     * 沉睡指定时间 并判断 是否生成了 结果
+     * @param timeoutNanos
+     * @param interruptable
+     * @return
+     * @throws InterruptedException
+     */
     private boolean await0(long timeoutNanos, boolean interruptable) throws InterruptedException {
         if (isDone()) {
             return true;
@@ -606,6 +724,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
             throw new InterruptedException(toString());
         }
 
+        //在独占线程中 不能 await
         checkDeadLock();
 
         long startTime = System.nanoTime();
@@ -619,6 +738,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
                     }
                     incWaiters();
                     try {
+                        //等待 指定时间
                         wait(waitTime / 1000000, (int) (waitTime % 1000000));
                     } catch (InterruptedException e) {
                         if (interruptable) {
@@ -633,6 +753,7 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
                 if (isDone()) {
                     return true;
                 } else {
+                    //这里是 可能触发了 interrupt 就从await 中醒来  要 更新 下一个loop 的 await 时间
                     waitTime = timeoutNanos - (System.nanoTime() - startTime);
                     if (waitTime <= 0) {
                         return isDone();
@@ -774,6 +895,9 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         return result != null && result != UNCANCELLABLE;
     }
 
+    /**
+     * 一个异常的包装类 不知道什么用
+     */
     private static final class CauseHolder {
         final Throwable cause;
         CauseHolder(Throwable cause) {
@@ -781,6 +905,11 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
         }
     }
 
+    /**
+     * 安全执行(捕获异常 打印日志)
+     * @param executor
+     * @param task
+     */
     private static void safeExecute(EventExecutor executor, Runnable task) {
         try {
             executor.execute(task);

@@ -30,13 +30,26 @@ import java.util.List;
  *
  * Be aware that sub-classes of {@link ByteToMessageCodec} <strong>MUST NOT</strong>
  * annotated with {@link @Sharable}.
+ *
+ * 同时满足了 编码 和  解码 功能
  */
 public abstract class ByteToMessageCodec<I> extends ChannelDuplexHandler {
 
+    /**
+     * 编码 需要的 类型匹配
+     */
     private final TypeParameterMatcher outboundMsgMatcher;
+    /**
+     * 组合了一个编码对象
+     */
     private final MessageToByteEncoder<I> encoder;
 
+    /**
+     * 组合了一个解码对象
+     */
     private final ByteToMessageDecoder decoder = new ByteToMessageDecoder() {
+        //将解码工作 委托到这个类
+
         @Override
         public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
             ByteToMessageCodec.this.decode(ctx, in, out);
@@ -97,6 +110,8 @@ public abstract class ByteToMessageCodec<I> extends ChannelDuplexHandler {
     public boolean acceptOutboundMessage(Object msg) throws Exception {
         return outboundMsgMatcher.match(msg);
     }
+
+    //使用编解码器 处理对应的 inbound/outbound 事件
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {

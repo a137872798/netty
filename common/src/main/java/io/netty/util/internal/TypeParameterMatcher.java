@@ -68,8 +68,8 @@ public abstract class TypeParameterMatcher {
      * 从缓存中尝试获取指定类型的 Type匹配器对象
      * 应该是一个二级缓存 第一级使用对象类型 第二级使用指定的 泛型名 例如 I 找到对应的 匹配对象
      * @param object 传入需要被匹配的目标对象
-     * @param parametrizedSuperclass 父类对象
-     * @param typeParamName  这个是 handler 的 泛型参数类型
+     * @param parametrizedSuperclass 需要 获取泛型类型的 目标类
+     * @param typeParamName  这个是 handler 的 泛型参数类型  比如 I K V 这种
      * @return
      */
     public static TypeParameterMatcher find(
@@ -80,7 +80,7 @@ public abstract class TypeParameterMatcher {
         //获取传入对象的类型
         final Class<?> thisClass = object.getClass();
 
-        //从缓存中获取 该对象的 容器
+        //从缓存中获取 该对象的 容器  也就是这个map 已经对应到某个类了 然后如果类是 有多个泛型参数的 比如 <K,V> 在存放2次
         Map<String, TypeParameterMatcher> map = findCache.get(thisClass);
         if (map == null) {
             map = new HashMap<String, TypeParameterMatcher>();
@@ -90,6 +90,7 @@ public abstract class TypeParameterMatcher {
         //通过 typeParamName 作为 二级key 获取匹配器对象
         TypeParameterMatcher matcher = map.get(typeParamName);
         if (matcher == null) {
+            //find0 确认到 泛型的实际类型
             matcher = get(find0(object, parametrizedSuperclass, typeParamName));
             map.put(typeParamName, matcher);
         }
@@ -111,15 +112,16 @@ public abstract class TypeParameterMatcher {
         final Class<?> thisClass = object.getClass();
         Class<?> currentClass = thisClass;
         for (;;) {
-            //superClass 可以看作是 SimpleChannelInboundHandler
+            //这个 父类 相当于是 限定了 泛型 的 查找范围 比如 在往上 就没有 泛型参数了
             if (currentClass.getSuperclass() == parametrizedSuperclass) {
                 int typeParamIndex = -1;
                 //获取该对象的  泛型信息 对应到 SimpleChannelInboundHandler 的 I
                 TypeVariable<?>[] typeParams = currentClass.getSuperclass().getTypeParameters();
+                //这里是 找到一个 能匹配上的泛型
                 for (int i = 0; i < typeParams.length; i ++) {
                     //如果 泛型类型 能匹配上
                     if (typeParamName.equals(typeParams[i].getName())) {
-                        //一般i 应该就是 0 吧
+                        //代表需要将 object 与哪个 泛型参数 匹配 因为 一个类可能有多个泛型参数
                         typeParamIndex = i;
                         break;
                     }
@@ -137,6 +139,7 @@ public abstract class TypeParameterMatcher {
                     return Object.class;
                 }
 
+                //应该是能得到 父类的 真正泛型对象
                 Type[] actualTypeParams = ((ParameterizedType) genericSuperType).getActualTypeArguments();
 
                 //获取到真实类型
@@ -175,6 +178,7 @@ public abstract class TypeParameterMatcher {
 
                 return fail(thisClass, typeParamName);
             }
+            //不存在 父类对象就抛出异常 看来是一级级往上找
             currentClass = currentClass.getSuperclass();
             if (currentClass == null) {
                 return fail(thisClass, typeParamName);
