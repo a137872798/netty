@@ -17,7 +17,9 @@ package io.netty.util;
 
 /**
  * A handle associated with a {@link TimerTask} that is returned by a
- * {@link Timer}.
+ * {@link Timer}
+ *
+ * 一个 用来关闭定时器的对象 可以获取到定时器 以及定时任务
  */
 public interface Timeout {
 

@@ -450,10 +450,12 @@ final class PoolChunk<T> implements PoolChunkMetric {
      *
      * @param normCapacity normalized capacity
      * @return index in memoryMap
+     * 分配 subpage 大小
      */
     private long allocateSubpage(int normCapacity) {
         // Obtain the head of the PoolSubPage pool that is owned by the PoolArena and synchronize on it.
         // This is need as we may add it back and so alter the linked-list structure.
+        // 根据申请大小定位到 subpage 对象
         PoolSubpage<T> head = arena.findSubpagePoolHead(normCapacity);
         int d = maxOrder; // subpages are only be allocated from pages i.e., leaves
         synchronized (head) {

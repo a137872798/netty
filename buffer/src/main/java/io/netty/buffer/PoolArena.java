@@ -221,13 +221,14 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     abstract boolean isDirect();
 
     /**
-     * 使用arena 分配内存
+     * 使用arena 分配内存  pooledBytebufAllocator 的起点
      * @param cache 传入一个 缓存对象
      * @param reqCapacity 请求的 容量
-     * @param maxCapacity
+     * @param maxCapacity 最大允许容量
      * @return
      */
     PooledByteBuf<T> allocate(PoolThreadCache cache, int reqCapacity, int maxCapacity) {
+        //这里只是创建容器 没有 memory 属性 (就是 内存的 真正 属性 比如byte[] or Niobytebuffer)
         PooledByteBuf<T> buf = newByteBuf(maxCapacity);
         allocate(cache, buf, reqCapacity);
         return buf;
@@ -269,9 +270,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     /**
      * 分配内存的 核心逻辑
-     * @param cache
-     * @param buf
-     * @param reqCapacity
+     * @param cache 缓存对象
+     * @param buf 需要分配内存的  buf 对象
+     * @param reqCapacity 请求分配的大小
      */
     private void allocate(PoolThreadCache cache, PooledByteBuf<T> buf, final int reqCapacity) {
         //将 请求大小 规范化
