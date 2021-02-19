@@ -23,8 +23,7 @@ import io.netty.util.internal.StringUtil;
 
 /**
  * Skeletal {@link ByteBufAllocator} implementation to extend.
- *
- * bytebuf 分配器对象  子类实现 就是 pooled 和 unpooled
+ * 定义了分配的模板 同时还具备将buffer包装成支持检测内存泄露的buffer对象   核心的分配逻辑由子类实现
  */
 public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
     /**
@@ -35,33 +34,31 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
      * 默认情况 是不限制最大容量的
      */
     static final int DEFAULT_MAX_CAPACITY = Integer.MAX_VALUE;
-    /**
-     * 默认最大的 组件大小 应该是说一个 bytebuf 最多由几个 bytebuf 组合成
-     */
+
     static final int DEFAULT_MAX_COMPONENTS = 16;
     static final int CALCULATE_THRESHOLD = 1048576 * 4; // 4 MiB page
 
     static {
-        //该方法是不用被 记录的
+        // 该方法是不用被检测的
         ResourceLeakDetector.addExclusions(AbstractByteBufAllocator.class, "toLeakAwareBuffer");
     }
 
     /**
-     * 将传入的 bytebuf 对象 封装成 可以检测内存泄漏的 bytebuf 对象  应该是只有directBytebuf 对象才需要调用这个方法
+     * 将buffer包装成可以检测资源泄露的对象
      * @param buf
      * @return
      */
     protected static ByteBuf toLeakAwareBuffer(ByteBuf buf) {
         //内存泄漏 轨迹对象
         ResourceLeakTracker<ByteBuf> leak;
-        //获取内存泄漏的 级别  ResourceLeakDetector 对象是 ResourceLeakTracker的 管理器
+        //获取内存泄漏的级别 ResourceLeakDetector是ResourceLeakTracker的 管理器
         switch (ResourceLeakDetector.getLevel()) {
             //如果是简单级别
             case SIMPLE:
                 //这里可能会 返回一个 资源泄漏轨迹对象 很大概率不会返回对象
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
-                    //将 buf 和 leak 包装成一个 普通的 buf 对象 否则 就不对bytebuf 做处理
+                    //将buf和leak包装成一个普通的buf对象 否则就不对byteBuf 做处理
                     buf = new SimpleLeakAwareByteBuf(buf, leak);
                 }
                 break;
@@ -69,7 +66,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
             case PARANOID:
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
-                    //这个对象在 每次操作 都会生成一个 Record 对象
+                    //这个对象在 每次操作 都会生成一个 Record 对象  这样在被异常回收时就可以提示更多信息 便于排查
                     buf = new AdvancedLeakAwareByteBuf(buf, leak);
                 }
                 break;
@@ -80,7 +77,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
     }
 
     /**
-     * 生成泄漏组对象
+     * 检测这组buffer是否发生资源泄露
      * @param buf
      * @return
      */
@@ -201,6 +198,10 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         return newHeapBuffer(initialCapacity, maxCapacity);
     }
 
+    /**
+     * 申请一个直接内存
+     * @return
+     */
     @Override
     public ByteBuf directBuffer() {
         return directBuffer(DEFAULT_INITIAL_CAPACITY, DEFAULT_MAX_CAPACITY);

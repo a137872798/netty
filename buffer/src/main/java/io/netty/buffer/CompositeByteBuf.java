@@ -44,9 +44,7 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * A virtual buffer which shows multiple buffers as a single merged buffer.  It is recommended to use
  * {@link ByteBufAllocator#compositeBuffer()} or {@link Unpooled#wrappedBuffer(ByteBuf...)} instead of calling the
  * constructor explicitly.
- *
- * 复合 Bytebuf 对象  netty 实现 zero-copy 的核心类 其实就是 使用同一内存 而没有创建副本对象
- * 同时在 flush 时 好像会根据 bytebuf 数量 判断能 flush 多少 对于这个类应该就是返回 >1  的数
+ * 将一组buffer统一对待
  */
 public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements Iterable<ByteBuf> {
 
@@ -54,7 +52,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
     private static final Iterator<ByteBuf> EMPTY_ITERATOR = Collections.<ByteBuf>emptyList().iterator();
 
     /**
-     * 关联的 bytebuf 分配器
+     * 该组buffer是由哪个allocator分配的
      */
     private final ByteBufAllocator alloc;
     /**
@@ -62,7 +60,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
      */
     private final boolean direct;
     /**
-     * 最大允许存放的组件数量
+     * 内部最多允许存储多少byteBuf
      */
     private final int maxNumComponents;
 
@@ -89,7 +87,7 @@ public class CompositeByteBuf extends AbstractReferenceCountedByteBuf implements
         this.alloc = alloc;
         this.direct = direct;
         this.maxNumComponents = maxNumComponents;
-        //根据 size 来初始化 components 大小  一般不建议直接通过构造函数 创建 该对象
+        // 尝试按照一个合适的大小划分 components数量
         components = newCompArray(initSize, maxNumComponents);
     }
 

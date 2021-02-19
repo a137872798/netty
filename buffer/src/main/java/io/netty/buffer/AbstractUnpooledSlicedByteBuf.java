@@ -29,8 +29,14 @@ import java.nio.charset.Charset;
 
 import static io.netty.util.internal.MathUtil.isOutOfBounds;
 
+/**
+ * 为某个buffer生成一个分片对象
+ */
 abstract class AbstractUnpooledSlicedByteBuf extends AbstractDerivedByteBuf {
     private final ByteBuf buffer;
+    /**
+     * 相较 buffer.index的偏移量
+     */
     private final int adjustment;
 
     AbstractUnpooledSlicedByteBuf(ByteBuf buffer, int index, int length) {

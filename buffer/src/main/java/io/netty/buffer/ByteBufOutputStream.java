@@ -34,6 +34,7 @@ import java.io.OutputStream;
  * the endianness of the underlying buffer.
  *
  * @see ByteBufInputStream
+ * 将数据输出到byteBuf上
  */
 public class ByteBufOutputStream extends OutputStream implements DataOutput {
 

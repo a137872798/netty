@@ -33,6 +33,7 @@ import java.nio.channels.ScatteringByteChannel;
  * instead of calling the constructor explicitly.
  *
  * @deprecated Do not use.
+ * 代表一个只读容器
  */
 @Deprecated
 public class ReadOnlyByteBuf extends AbstractDerivedByteBuf {
@@ -65,6 +66,18 @@ public class ReadOnlyByteBuf extends AbstractDerivedByteBuf {
         return false;
     }
 
+    /**
+     * 返回1 代表无法继续写入
+     * @param minWritableBytes
+     *        the expected minimum number of writable bytes
+     * @param force
+     *        When {@link #writerIndex()} + {@code minWritableBytes} &gt; {@link #maxCapacity()}:
+     *        <ul>
+     *        <li>{@code true} - the capacity of the buffer is expanded to {@link #maxCapacity()}</li>
+     *        <li>{@code false} - the capacity of the buffer is unchanged</li>
+     *        </ul>
+     * @return
+     */
     @Override
     public int ensureWritable(int minWritableBytes, boolean force) {
         return 1;

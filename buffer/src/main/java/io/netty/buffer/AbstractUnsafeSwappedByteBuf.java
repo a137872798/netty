@@ -23,6 +23,7 @@ import static io.netty.util.internal.PlatformDependent.BIG_ENDIAN_NATIVE_ORDER;
 
 /**
  * Special {@link SwappedByteBuf} for {@link ByteBuf}s that is using unsafe.
+ * 通过操作unsafe类获取数据的buffer
  */
 abstract class AbstractUnsafeSwappedByteBuf extends SwappedByteBuf {
     private final boolean nativeByteOrder;

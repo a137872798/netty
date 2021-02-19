@@ -111,7 +111,7 @@ public class ResourceLeakDetector<T> {
     }
 
     /**
-     * 当前 泄漏检测 级别
+     * 采样级别
      */
     private static Level level;
 
@@ -197,7 +197,7 @@ public class ResourceLeakDetector<T> {
     private final ConcurrentMap<String, Boolean> reportedLeaks = PlatformDependent.newConcurrentHashMap();
 
     /**
-     * 这个就是 资源泄漏检测对象的 类名对应到
+     * 这个就是 资源泄漏检测对象的类名对应到
      * ResourceLeakDetectorFactory#ResourceLeakDetector<T> newResourceLeakDetector
      *                                                            (Class<T> resource, int samplingInterval,long maxActive) {
      */
@@ -248,6 +248,7 @@ public class ResourceLeakDetector<T> {
      * @deprecated use {@link ResourceLeakDetectorFactory#newResourceLeakDetector(Class, int, long)}.
      * <p>
      * @param maxActive This is deprecated and will be ignored.
+     *                  创建有关某个资源的检测对象    resourceType对应被检测类的className
      */
     @Deprecated
     public ResourceLeakDetector(String resourceType, int samplingInterval, long maxActive) {
@@ -275,7 +276,6 @@ public class ResourceLeakDetector<T> {
      * Creates a new {@link ResourceLeakTracker} which is expected to be closed via
      * {@link ResourceLeakTracker#close(Object)} when the related resource is deallocated.
      *
-     * 将传入的对象 封装成 tracker 对象 这样就可以监控它是否泄漏
      * @return the {@link ResourceLeakTracker} or {@code null}
      */
     @SuppressWarnings("unchecked")
@@ -284,7 +284,7 @@ public class ResourceLeakDetector<T> {
     }
 
     /**
-     * 为传入对象生成资源泄漏对象  只有调用这个的时候 才会打印之前的泄漏信息???
+     * 检测某个对象是否发生内存泄露
      * @param obj
      * @return
      */
@@ -299,14 +299,13 @@ public class ResourceLeakDetector<T> {
 
         //如果是 PARANOID 之前的 也就是 Simple 和 Advanced
         if (level.ordinal() < Level.PARANOID.ordinal()) {
-            //如果 刚好是可以报告
+            // 会以很低的概率创建资源泄露对象
             if ((PlatformDependent.threadLocalRandom().nextInt(samplingInterval)) == 0) {
                 //获取 refQueue 中的对象并打印泄漏信息
                 reportLeak();
                 //将传入的 对象包装成资源泄露对象 并返回
                 return new DefaultResourceLeak(obj, refQueue, allLeaks);
             }
-            //那2个 级别 会 以很低的 概率 返回 泄漏对象 一般调用也是不创建 泄漏对象的
             return null;
         }
         //PARANOID 级别 就是一定会创建对象
@@ -342,31 +341,24 @@ public class ResourceLeakDetector<T> {
 
         // Detect and report previous leaks.
         for (;;) {
+            // 先找到之前的泄露信息 并尝试打印  queue中的对象代表意外被回收的 那么它所关联的资源可能没来的及回收 就可能会发生资源泄露
             @SuppressWarnings("unchecked")
-            //获取被回收的资源泄漏对象  这个对象是 什么时候加入的 这个对象又是 怎么跟泄漏对象关联起来的 ???
-                    //为什么这个对象被 回收了就代表资源泄漏了
             DefaultResourceLeak ref = (DefaultResourceLeak) refQueue.poll();
             if (ref == null) {
                 //如果 refQueue 中没有对象直接退出
                 break;
             }
 
-            //如果 已经从allLeak中被回收就跳过 这里就是针对 资源被正常释放的 情况
-            //也就是每个 bytebuf 在创建的时候就关联了一个 weakReference 对象如果bytebuf 是正常释放的 会在allLeak 被回收
-            //如果bytebuf被回收时该Leak对象还记录在allLeak中 同时 weakReferenceQueue中又存在该对象引用就是 泄漏了
             if (!ref.dispose()) {
                 continue;
             }
 
-            //获取 泄漏信息 并打印
+            // 打印该对象采集到的所有信息
             String records = ref.toString();
             if (reportedLeaks.putIfAbsent(records, Boolean.TRUE) == null) {
-                //都是打印信息 不过 没有records 的会简陋一点
                 if (records.isEmpty()) {
-                    //当 无泄漏信息时触发
                     reportUntracedLeak(resourceType);
                 } else {
-                    //存在 泄漏信息时触发
                     reportTracedLeak(resourceType, records);
                 }
             }
@@ -405,9 +397,7 @@ public class ResourceLeakDetector<T> {
     }
 
     /**
-     * 默认的 资源泄漏类  这里实现了 WeakReference 也就是可以通过传入 一个 refQueue 记录哪些对象被回收了
      *
-     * 相当于将bytebuf
      * @param <T>
      */
     @SuppressWarnings("deprecation")
@@ -447,7 +437,7 @@ public class ResourceLeakDetector<T> {
                 ReferenceQueue<Object> refQueue,
                 //这个detector 对象 记录的 所有leak 对象
                 Set<DefaultResourceLeak<?>> allLeaks) {
-            //将需要被 设置成 weakReference 的对象传入到 父级 并传入一个 引用队列 这样能知道 什么对象被回收了
+            // 追踪某对象是否会被正常回收
             super(referent, refQueue);
 
             assert referent != null;
@@ -545,13 +535,11 @@ public class ResourceLeakDetector<T> {
         }
 
         /**
-         * 当需要从refQueue 中移除时 触发
+         * 代表detector对象不需要再维护该leak对象
          * @return
          */
         boolean dispose() {
-            //这个好像是从refQueue 中移除
             clear();
-            //从当前维护的 所有资源泄漏对象中 移除 正常release 后 该对象是会从allLeak 中移除的
             return allLeaks.remove(this);
         }
 
@@ -570,12 +558,11 @@ public class ResourceLeakDetector<T> {
                 headUpdater.set(this, null);
                 return true;
             }
-            //这个应该是不会发生的
             return false;
         }
 
         /**
-         * 为指定对象 释放资源
+         * 当资源被释放时触发  资源泄露的检测方式就是看本对象是否被弱引用回收了 如果回收了那么它关联的一些资源可能没来得及释放 比如堆外内存
          * @param trackedObject
          * @return
          */
@@ -739,9 +726,7 @@ public class ResourceLeakDetector<T> {
          * 看来也是个链表结构
          */
         private final Record next;
-        /**
-         * 这个是 记录 触发点的 距离吗??? 按照链往下 会递减
-         */
+
         private final int pos;
 
         /**

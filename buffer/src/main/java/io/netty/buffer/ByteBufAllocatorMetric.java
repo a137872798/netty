@@ -15,6 +15,9 @@
  */
 package io.netty.buffer;
 
+/**
+ * 监控创建的 head内存/堆外内存
+ */
 public interface ByteBufAllocatorMetric {
     /**
      * Returns the number of bytes of heap memory used by a {@link ByteBufAllocator} or {@code -1} if unknown.

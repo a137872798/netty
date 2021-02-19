@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
  * {@link ByteBuf}.
  *
  * @deprecated Do not use.
+ * 该对象代表包装类的基类  有些特定的api需要通过 unwrap() 调用
  */
 @Deprecated
 public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {

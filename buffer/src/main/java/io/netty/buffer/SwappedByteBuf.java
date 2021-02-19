@@ -33,7 +33,6 @@ import java.nio.charset.Charset;
  * @deprecated use the Little Endian accessors, e.g. {@code getShortLE}, {@code getIntLE}
  * instead.
  *
- * 生成一个将buf 对象的字节顺序交换后的对象
  */
 @Deprecated
 public class SwappedByteBuf extends ByteBuf {

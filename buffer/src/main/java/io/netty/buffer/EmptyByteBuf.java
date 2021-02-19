@@ -45,9 +45,7 @@ public final class EmptyByteBuf extends ByteBuf {
      * 一个空 的 niobuffer对象
      */
     private static final ByteBuffer EMPTY_BYTE_BUFFER = ByteBuffer.allocateDirect(0);
-    /**
-     * 空bytebuffer 的 地址  为什么会有这个东西
-     */
+
     private static final long EMPTY_BYTE_BUFFER_ADDRESS;
 
     static {

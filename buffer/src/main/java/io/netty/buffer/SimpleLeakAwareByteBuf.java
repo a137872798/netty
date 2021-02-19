@@ -23,7 +23,7 @@ import io.netty.util.internal.ObjectUtil;
 import java.nio.ByteOrder;
 
 /**
- * 一个 bytebuf 的包装类 内部维护一个 检测内存泄漏的对象  WrapperBytebuf的功能 基本都是委托到 bytebuf 对象上
+ * 该对象内部包含了资源泄露检测对象
  */
 class SimpleLeakAwareByteBuf extends WrappedByteBuf {
 
@@ -115,9 +115,8 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
      */
     @Override
     public boolean release() {
-        //如果引用计数 为0了
         if (super.release()) {
-            //调用 资源泄漏对象的 close 代表该对象被正常 回收
+            // 当真正的buffer被释放后 关闭检测
             closeLeak();
             return true;
         }
@@ -133,6 +132,9 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
         return false;
     }
 
+    /**
+     * 代表是被正常回收
+     */
     private void closeLeak() {
         // Close the ResourceLeakTracker with the tracked ByteBuf as argument. This must be the same that was used when
         // calling DefaultResourceLeak.track(...).
@@ -166,7 +168,7 @@ class SimpleLeakAwareByteBuf extends WrappedByteBuf {
             ResourceLeakTracker<ByteBuf> newLeak = AbstractByteBuf.leakDetector.track(derived);
             if (newLeak == null) {
                 // No leak detection, just return the derived buffer.
-                //代表没有成功生成资源检测对象
+                // 没有获取到检测对象 不进行包装
                 return derived;
             }
             return newLeakAwareByteBuf(derived, newLeak);

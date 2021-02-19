@@ -63,10 +63,10 @@ public abstract class ResourceLeakDetectorFactory {
     /**
      * Returns a new instance of a {@link ResourceLeakDetector} with the given resource class.
      *
-     * 根据指定类型 来创建 资源泄露对象(ResourceLeakDetector)
      * @param resource the resource class used to initialize the {@link ResourceLeakDetector}
      * @param <T> the type of the resource class
      * @return a new instance of {@link ResourceLeakDetector}
+     * 生成某个类的 资源泄露检测对象
      */
     public final <T> ResourceLeakDetector<T> newResourceLeakDetector(Class<T> resource) {
         return newResourceLeakDetector(resource, ResourceLeakDetector.SAMPLING_INTERVAL);
@@ -106,7 +106,7 @@ public abstract class ResourceLeakDetectorFactory {
      */
     private static final class DefaultResourceLeakDetectorFactory extends ResourceLeakDetectorFactory {
         /**
-         * 过时的消费者 类 构造器
+         *
          */
         private final Constructor<?> obsoleteCustomClassConstructor;
         /**
@@ -131,7 +131,7 @@ public abstract class ResourceLeakDetectorFactory {
             if (customLeakDetector == null) {
                 obsoleteCustomClassConstructor = customClassConstructor = null;
             } else {
-                //将构造器 名转化为 构造器对象
+                //将构造器名转化为 构造器对象
                 obsoleteCustomClassConstructor = obsoleteCustomClassConstructor(customLeakDetector);
                 customClassConstructor = customClassConstructor(customLeakDetector);
             }
@@ -179,17 +179,19 @@ public abstract class ResourceLeakDetectorFactory {
         }
 
         /**
-         * 根据指定的 类型生成资源泄露对象  这个resource 对应的 是 ResourceLeakDetector 的哪个属性???
          * @param resource the resource class used to initialize the {@link ResourceLeakDetector}
-         * @param samplingInterval the interval on which sampling takes place
+         * @param samplingInterval the interval on which sampling takes place  采样的时间间隔
          * @param maxActive This is deprecated and will be ignored.
          * @param <T>
          * @return
+         * resource 代表被监控的资源类   这里生成一个监控该类资源泄露的对象
          */
         @SuppressWarnings("deprecation")
         @Override
         public <T> ResourceLeakDetector<T> newResourceLeakDetector(Class<T> resource, int samplingInterval,
                                                                    long maxActive) {
+
+            // 从这里可以看到 可以在环境变量中配置自定义的资源泄露检测类
             if (obsoleteCustomClassConstructor != null) {
                 try {
                     @SuppressWarnings("unchecked")
@@ -206,6 +208,7 @@ public abstract class ResourceLeakDetectorFactory {
                 }
             }
 
+            // 默认的检测对象
             ResourceLeakDetector<T> resourceLeakDetector = new ResourceLeakDetector<T>(resource, samplingInterval,
                                                                                        maxActive);
             logger.debug("Loaded default ResourceLeakDetector: {}", resourceLeakDetector);

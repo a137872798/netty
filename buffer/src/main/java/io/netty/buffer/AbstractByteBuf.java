@@ -42,7 +42,7 @@ import static io.netty.util.internal.MathUtil.isOutOfBounds;
 /**
  * A skeletal implementation of a buffer.
  *
- * bytebuf 的 骨架类
+ * byteBuf骨架类
  */
 public abstract class AbstractByteBuf extends ByteBuf {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractByteBuf.class);
@@ -70,7 +70,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 返回一个 资源泄漏 探查对象
+     * 针对ByteBuf 有一个专门的资源泄露检测对象
      */
     static final ResourceLeakDetector<ByteBuf> leakDetector =
             ResourceLeakDetectorFactory.instance().newResourceLeakDetector(ByteBuf.class);
@@ -115,11 +115,11 @@ public abstract class AbstractByteBuf extends ByteBuf {
     @SuppressWarnings("deprecation")
     @Override
     public ByteBuf asReadOnly() {
+        // 如果当前对象已经被包装成了只读对象 不需要做处理
         if (isReadOnly()) {
-            //否则返回原对象
             return this;
         }
-        //这里返回视图
+        // 装饰器模式
         return Unpooled.unmodifiableBuffer(this);
     }
 
@@ -299,21 +299,21 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 丢弃 已读的数据
+     * 将已读的数据从容器中丢弃
      * @return
      */
     @Override
     public ByteBuf discardReadBytes() {
-        //这里判断 引用计数是否为0 是就抛出异常
+        //如果本对象引用计数已经归0了 那么应当无法被操作了
         ensureAccessible();
-        //如果当前读指针就是0 直接返回
+        //此时还没有读取任何数据 也就没有需要丢弃的数据
         if (readerIndex == 0) {
             return this;
         }
 
         //当读指针不同于写指针
         if (readerIndex != writerIndex) {
-            //这里 并没有删除之前的数据 而是 覆盖对应位置的数据
+            // 将未读的部分移动到0
             setBytes(0, this, readerIndex, writerIndex - readerIndex);
             //写指针位置改变
             writerIndex -= readerIndex;
@@ -321,7 +321,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
             adjustMarkers(readerIndex);
             readerIndex = 0;
         } else {
-            //重置标记的位置
+            // 可以丢弃所有数据
             adjustMarkers(readerIndex);
             //读写指针相同 都重置为0
             writerIndex = readerIndex = 0;
@@ -330,7 +330,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 这个是 丢弃多少数据???
+     * 只有当较多的数据被读取时 才会选择丢弃数据以复用空间
      * @return
      */
     @Override
@@ -340,7 +340,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
             return this;
         }
 
-        //如果等大 就 直接 清空
+        // 丢弃所有数据
         if (readerIndex == writerIndex) {
             adjustMarkers(readerIndex);
             writerIndex = readerIndex = 0;
@@ -396,16 +396,17 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 确保能否写入这么多数据
+     * 确保能否写入这么多数据  这里会自动扩容
      * @param minWritableBytes
      */
     final void ensureWritable0(int minWritableBytes) {
         ensureAccessible();
-        //小于 capacity - writeIndex
+        // 此时有足够的空间
         if (minWritableBytes <= writableBytes()) {
             return;
         }
-        //判断是否超过了 MaxCapacity
+
+        // 检测是否会超过最大容量  选择抛出异常
         if (checkBounds) {
             if (minWritableBytes > maxCapacity - writerIndex) {
                 throw new IndexOutOfBoundsException(String.format(
@@ -415,7 +416,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
 
         // Normalize the current capacity to the power of 2.
-        // 获取一个新的 capacity
+        // 通过分配器进行扩容
         int newCapacity = alloc().calculateNewCapacity(writerIndex + minWritableBytes, maxCapacity);
 
         // Adjust to the new capacity.
@@ -424,7 +425,6 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 确保是否能写入
      * @param minWritableBytes
      *        the expected minimum number of writable bytes
      * @param force
@@ -434,6 +434,10 @@ public abstract class AbstractByteBuf extends ByteBuf {
      *        <li>{@code false} - the capacity of the buffer is unchanged</li>
      *        </ul>
      * @return
+     * 0代表有足够空间 不需要扩容
+     * 1代表没有足够的空间 且没有扩容
+     * 3代表没有足够的空间 但是扩大到了maxCapacity
+     * 2代表有足够的空间 并且进行了扩容
      */
     @Override
     public int ensureWritable(int minWritableBytes, boolean force) {
@@ -457,17 +461,14 @@ public abstract class AbstractByteBuf extends ByteBuf {
                 return 1;
             }
 
-            //设置成最大 容量 返回3  这时 还是不能写入指定大小的
             capacity(maxCapacity);
             return 3;
         }
 
-        //扩容 重新设置大小
-
         // Normalize the current capacity to the power of 2.
         int newCapacity = alloc().calculateNewCapacity(writerIndex + minWritableBytes, maxCapacity);
 
-        // Adjust to the new capacity.   2代表空间是足够的
+        // Adjust to the new capacity.
         capacity(newCapacity);
         return 2;
     }
@@ -1352,7 +1353,6 @@ public abstract class AbstractByteBuf extends ByteBuf {
         return written;
     }
 
-    //上面都没看
 
     @Override
     public ByteBuf copy() {
@@ -1379,7 +1379,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 生成 副本(分片)对象
+     * 生成分片
      * @return
      */
     @Override
@@ -1408,7 +1408,7 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     /**
-     * 将该对象转化 成 nioBuffer 对象
+     * 将该对象转化 成 nioBuffer 对象  默认都是只针对未读部分的 已读的数据会被忽略
      * @return
      */
     @Override

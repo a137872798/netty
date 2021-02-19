@@ -39,6 +39,7 @@ import java.io.InputStream;
  * the endianness of the underlying buffer.
  *
  * @see ByteBufOutputStream
+ * 读取buffer内部的数据
  */
 public class ByteBufInputStream extends InputStream implements DataInput {
     private final ByteBuf buffer;

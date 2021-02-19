@@ -19,7 +19,7 @@ package io.netty.buffer;
  * Implementations are responsible to allocate buffers. Implementations of this interface are expected to be
  * thread-safe.
  *
- * bytebuf 分配器
+ * byteBuf 分配器
  */
 public interface ByteBufAllocator {
 
@@ -28,12 +28,14 @@ public interface ByteBufAllocator {
     /**
      * Allocate a {@link ByteBuf}. If it is a direct or heap buffer
      * depends on the actual implementation.
+     * 生成一个buffer对象
      */
     ByteBuf buffer();
 
     /**
      * Allocate a {@link ByteBuf} with the given initial capacity.
      * If it is a direct or heap buffer depends on the actual implementation.
+     * 按照指定的大小生成buffer
      */
     ByteBuf buffer(int initialCapacity);
 
@@ -41,6 +43,7 @@ public interface ByteBufAllocator {
      * Allocate a {@link ByteBuf} with the given initial capacity and the given
      * maximal capacity. If it is a direct or heap buffer depends on the actual
      * implementation.
+     * 基于2个capacity创建buffer 当写入数据时发现空间不足就会自动扩容
      */
     ByteBuf buffer(int initialCapacity, int maxCapacity);
 

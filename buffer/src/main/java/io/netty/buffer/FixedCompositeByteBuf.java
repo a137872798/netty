@@ -54,6 +54,7 @@ final class FixedCompositeByteBuf extends AbstractReferenceCountedByteBuf {
             ByteBuf b = buffers[0];
             this.buffers = buffers;
             boolean direct = true;
+            // 每个buffer可能还是一个CompositeByteBuf 所以要获取数量
             int nioBufferCount = b.nioBufferCount();
             int capacity = b.readableBytes();
             order = b.order();
