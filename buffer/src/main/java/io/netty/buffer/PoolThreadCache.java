@@ -36,18 +36,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <a href="https://www.facebook.com/notes/facebook-engineering/scalable-memory-allocation-using-jemalloc/480222803919">
  * Scalable memory allocation using jemalloc</a>
  *
- * 因为PoolArena 在 分配过程中 如果被并发访问 同时如果 申请堆外内存这种 成本比较大的 就会阻塞较长时间 对程序有影响 所以 需要一种针对线程的缓存机制
+ * 池化的内存块如果被多个线程争用,需要加锁,也会造成较大的锁竞争.所以尽可能将内存块绑定在某个线程上
+ * 该对象代表着分配到某个线程上的内存块
  */
 final class PoolThreadCache {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(PoolThreadCache.class);
 
     /**
-     * 用于存放 heapArena 对象
+     * 本线程申请的堆内存会从该对象中获取
      */
     final PoolArena<byte[]> heapArena;
     /**
-     * 保存 DirectArena 对象
+     * 本线程申请的堆外内存会从该对象中获取
      */
     final PoolArena<ByteBuffer> directArena;
 
@@ -71,7 +72,7 @@ final class PoolThreadCache {
     //private long pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7;
 
     /**
-     * 创建 线程缓存对象
+     * 该对象代表每个线程会从哪个arena上获取/归还内存块
      * @param heapArena
      * @param directArena
      * @param tinyCacheSize
@@ -91,7 +92,6 @@ final class PoolThreadCache {
         this.freeSweepAllocationThreshold = freeSweepAllocationThreshold;
         this.heapArena = heapArena;
         this.directArena = directArena;
-        //如果存在 直接内存对象
         if (directArena != null) {
             //以tiny 大小为参数 初始化缓存对象
             tinySubPageDirectCaches = createSubPageCaches(
@@ -106,11 +106,10 @@ final class PoolThreadCache {
             normalDirectCaches = createNormalCaches(
                     normalCacheSize, maxCachedBufferCapacity, directArena);
 
-            //代表该arena 对象 被 这个线程缓存 使用
+            //代表该arena此时也被本线程使用
             directArena.numThreadCaches.getAndIncrement();
         } else {
             // No directArea is configured so just null out all caches
-            // 不存在 直接内存的相关信息 属性置空
             tinySubPageDirectCaches = null;
             smallSubPageDirectCaches = null;
             normalDirectCaches = null;
@@ -150,7 +149,8 @@ final class PoolThreadCache {
     }
 
     /**
-     * 创建 subpage 缓存对象
+     * 线程只要分配过内存块,一种激进的优化策略是认为该线程之后还会分配相同的内存块 所以在这一层上再做一个缓存
+     * (内存块不会直接归还回arena 而是先保留在cache中 当线程被回收时将cache中所有内存块一次性归还到arena 但是这样做的前提是线程数少)
      * @param cacheSize
      * @param numCaches  Tiny 默认是 32 Small 是4
      * @param sizeClass  Tiny or small
@@ -160,12 +160,11 @@ final class PoolThreadCache {
     private static <T> MemoryRegionCache<T>[] createSubPageCaches(
             int cacheSize, int numCaches, SizeClass sizeClass) {
         if (cacheSize > 0 && numCaches > 0) {
+            // 该对象用于存储分配过的内存块
             @SuppressWarnings("unchecked")
-            //根据内存块 数组大小创建对应的 缓存数组对象
             MemoryRegionCache<T>[] cache = new MemoryRegionCache[numCaches];
             for (int i = 0; i < cache.length; i++) {
                 // TODO: maybe use cacheSize / cache.length
-                // 创建对应的 SuPageMemory
                 cache[i] = new SubPageMemoryRegionCache<T>(cacheSize, sizeClass);
             }
             return cache;
@@ -187,14 +186,12 @@ final class PoolThreadCache {
         if (cacheSize > 0 && maxCachedBufferCapacity > 0) {
             //最多只能保存 一个 chunk 大小 或者是 maxCachedBufferCapacity
             int max = Math.min(area.chunkSize, maxCachedBufferCapacity);
-            //这个+1是???
             int arraySize = Math.max(1, log2(max / area.pageSize) + 1);
 
             @SuppressWarnings("unchecked")
             //创建arraySize 的 数组对象
             MemoryRegionCache<T>[] cache = new MemoryRegionCache[arraySize];
             for (int i = 0; i < cache.length; i++) {
-                //cacheSize 是在 构造PoolThreadCache 时 传入的
                 cache[i] = new NormalMemoryRegionCache<T>(cacheSize);
             }
             return cache;
@@ -311,7 +308,7 @@ final class PoolThreadCache {
 
     /**
      *  Should be called if the Thread that uses this cache is about to exist to release resources out of the cache
-     *  对象终结时 调用
+     *  当本对象不再被使用时 需要将cache中的所有内存块归还到arena上
      */
     void free() {
         // As free() may be called either by the finalizer or by FastThreadLocal.onRemoval(...) we need to ensure
@@ -398,7 +395,7 @@ final class PoolThreadCache {
     }
 
     /**
-     * 通过传入的  capcaity 获取缓存对象
+     * 每个线程可能之前已经分配了内存块 并且现在该内存块没有被使用 直接复用就可以
      * @param area
      * @param normCapacity
      * @return
@@ -459,7 +456,6 @@ final class PoolThreadCache {
 
     /**
      * Cache used for buffers which are backed by TINY or SMALL size.
-     * subpage 大小的 缓存对象
      */
     private static final class SubPageMemoryRegionCache<T> extends MemoryRegionCache<T> {
         SubPageMemoryRegionCache(int size, SizeClass sizeClass) {
@@ -491,13 +487,11 @@ final class PoolThreadCache {
     }
 
     /**
-     * 内存缓存块
+     * 缓存从arena中获取的内存块对象
      * @param <T>
      */
     private abstract static class MemoryRegionCache<T> {
-        /**
-         * 队列长度
-         */
+
         private final int size;
         /**
          * 缓存队列 是 mpsc 队列 这里指 允许单个添加 多个使用
@@ -509,8 +503,12 @@ final class PoolThreadCache {
         private final SizeClass sizeClass;
         private int allocations;
 
+        /**
+         *
+         * @param size
+         * @param sizeClass
+         */
         MemoryRegionCache(int size, SizeClass sizeClass) {
-            //将size 变成2 的幂
             this.size = MathUtil.safeFindNextPositivePowerOfTwo(size);
             //生成 mpsc queue 对象
             queue = PlatformDependent.newFixedMpscQueue(this.size);
@@ -563,7 +561,7 @@ final class PoolThreadCache {
 
         /**
          * Clear out this cache and free up all previous cached {@link PoolChunk}s and {@code handle}s.
-         * 释放指定数量的 entry
+         * 将所有内存块归还到arena
          */
         public final int free() {
             return free(Integer.MAX_VALUE);
@@ -619,7 +617,7 @@ final class PoolThreadCache {
             // recycle now so PoolChunk can be GC'ed.
             entry.recycle();
 
-            //委托到arena 进行 free
+            // 将chunk归还到arena
             chunk.arena.freeChunk(chunk, handle, sizeClass, nioBuffer);
         }
 

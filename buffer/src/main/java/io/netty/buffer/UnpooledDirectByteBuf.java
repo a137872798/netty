@@ -32,7 +32,6 @@ import java.nio.channels.ScatteringByteChannel;
  * {@link UnpooledByteBufAllocator#directBuffer(int, int)}, {@link Unpooled#directBuffer(int)} and
  * {@link Unpooled#wrappedBuffer(ByteBuffer)} instead of calling the constructor explicitly.
  *
- * unpooled 就是没有使用 recycle 对象
  */
 public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
@@ -42,7 +41,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
     private final ByteBufAllocator alloc;
 
     /**
-     * nioBytebuffer 对象
+     * jdk的 directByteBuffer对象
      */
     private ByteBuffer buffer;
     /**
@@ -50,6 +49,9 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
      */
     private ByteBuffer tmpNioBuf;
     private int capacity;
+    /**
+     * 本对象不需要管理buffer的清理工作
+     */
     private boolean doNotFree;
 
     /**
@@ -105,7 +107,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
         }
 
         this.alloc = alloc;
-        //因为是使用外部传过来的 bytebuffer 对象 所以该对象的释放 由外部类 执行
+        //因为是使用外部传过来的bytebuffer对象,所以该对象的释放由外部类执行
         doNotFree = true;
         //生成新的 bytebuffer 对象并设置到成员变量中
         setByteBuffer(initialBuffer.slice().order(ByteOrder.BIG_ENDIAN));
@@ -114,6 +116,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
     /**
      * Allocate a new direct {@link ByteBuffer} with the given initialCapacity.
+     * 可以看到直接通过jdk开放的api来创建directByteBuffer对象
      */
     protected ByteBuffer allocateDirect(int initialCapacity) {
         return ByteBuffer.allocateDirect(initialCapacity);
@@ -121,7 +124,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
     /**
      * Free a direct {@link ByteBuffer}
-     * 这个好像是 释放直接内存的
+     * 释放直接内存
      */
     protected void freeDirect(ByteBuffer buffer) {
         PlatformDependent.freeDirectBuffer(buffer);
@@ -135,7 +138,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
         ByteBuffer oldBuffer = this.buffer;
         if (oldBuffer != null) {
             if (doNotFree) {
-                //标记成 需要 释放
+                // 代表自己创建了byteBuffer,需要自己进行清理工作
                 doNotFree = false;
             } else {
                 //需要释放的情况 释放旧的  bytebuffer 对象

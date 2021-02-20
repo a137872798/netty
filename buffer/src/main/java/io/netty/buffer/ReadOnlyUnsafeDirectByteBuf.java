@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 
 /**
  * Read-only ByteBuf which wraps a read-only direct ByteBuffer and use unsafe for best performance.
+ * 首先这个对象本身是不能被直接创建的  需要借助UnPooled对象来创建  并且创建该对象时能确保 byteBuffer必然是 DirectByteBuffer
+ * 这里借助unsafe对象来操作内存
  */
 final class ReadOnlyUnsafeDirectByteBuf extends ReadOnlyByteBufferBuf {
     private final long memoryAddress;

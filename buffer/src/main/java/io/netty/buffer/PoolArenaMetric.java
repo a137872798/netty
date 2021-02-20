@@ -20,6 +20,7 @@ import java.util.List;
 
 /**
  * Expose metrics for an arena.
+ * 记录竞技场此时内存分配情况
  */
 public interface PoolArenaMetric {
 

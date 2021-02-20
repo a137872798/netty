@@ -31,13 +31,13 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 池化 分配器 对象
+ * 池化分配器对象
  */
 public class PooledByteBufAllocator extends AbstractByteBufAllocator implements ByteBufAllocatorMetricProvider {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(PooledByteBufAllocator.class);
     /**
-     * 默认的 Heap Arena 数量  pooled 实现的  核心就是 从arena 中获取 内存 在不需要时 就归还
+     * 一开始会创建一定数量的arena  arena就是netty内存分配的最大单位
      */
     private static final int DEFAULT_NUM_HEAP_ARENA;
     /**
@@ -46,11 +46,11 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     private static final int DEFAULT_NUM_DIRECT_ARENA;
 
     /**
-     * 默认的 page 大小
+     * 默认的page大小 8k
      */
     private static final int DEFAULT_PAGE_SIZE;
     /**
-     * 代表 page 是2的几次方
+     * page的多少个2次方是一个chunk的大小 默认为11
      */
     private static final int DEFAULT_MAX_ORDER; // 8192 << 11 = 16 MiB per chunk
     private static final int DEFAULT_TINY_CACHE_SIZE;
@@ -66,7 +66,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     private static final int MAX_CHUNK_SIZE = (int) (((long) Integer.MAX_VALUE + 1) / 2);
 
     static {
-        //初始化 page 大小 默认是 8k
+        // 一个page的大小默认为8k
         int defaultPageSize = SystemPropertyUtil.getInt("io.netty.allocator.pageSize", 8192);
         Throwable pageSizeFallbackCause = null;
         try {
@@ -102,7 +102,8 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         final int defaultMinNumArena = NettyRuntime.availableProcessors() * 2;
         //默认的 chunk 大小 是 16M
         final int defaultChunkSize = DEFAULT_PAGE_SIZE << DEFAULT_MAX_ORDER;
-        //初始化 Arena  为默认的 Arena 数量 或者是 一半内存再/3 保证一个 arena 有3个chunk
+
+        // /2代表一半用于heap一半用于direct
         DEFAULT_NUM_HEAP_ARENA = Math.max(0,
                 SystemPropertyUtil.getInt(
                         "io.netty.allocator.numHeapArenas",
@@ -167,14 +168,11 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         }
     }
 
-    /**
-     * 使用一个 默认的 池化内存分配器  倾向于 Direct 内存
-     */
     public static final PooledByteBufAllocator DEFAULT =
             new PooledByteBufAllocator(PlatformDependent.directBufferPreferred());
 
     /**
-     * 竞技场 数组对象 是 Netty 内存分配中的 最大单位
+     * 代表本对象在初始化时预先分配的arena
      */
     private final PoolArena<byte[]>[] heapArenas;
     private final PoolArena<ByteBuffer>[] directArenas;
@@ -182,10 +180,11 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     private final int tinyCacheSize;
     private final int smallCacheSize;
     private final int normalCacheSize;
-    //也就是 PoolArena 数组对象 该对象会记录 arena 的内存分配情况
+
+    // 监控每个arena此时的分配情况
     private final List<PoolArenaMetric> heapArenaMetrics;
     private final List<PoolArenaMetric> directArenaMetrics;
-    //缓存对象
+    //每个线程会使用自己的arena 这样分配和归还操作就不需要加锁 否则多线程争用一个arena会造成较大的锁开销
     private final PoolThreadLocalCache threadCache;
     /**
      * chunk 的大小 chunk 默认情况 一个arena 中有3个chunk 一个chunk 有 2048 个page
@@ -238,7 +237,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     }
 
     /**
-     * 初始化该对象
+     * 池化分配器在创建的时候已经会开辟内存了,每次调用 directBuffer/headBuffer 这种方法只是从之前分配好的空间中取出一小块
      * @param preferDirect
      * @param nHeapArena
      * @param nDirectArena
@@ -353,23 +352,21 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     }
 
     /**
-     * 开始 分配内存
      * @param initialCapacity
      * @param maxCapacity
      * @return
      */
     @Override
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
-        //先从 缓存中获取
+        // 当某个线程尝试通过该对象申请内存时 先获取到绑定的cache对象 这时会为该线程绑定一个之前创建的arena对象 并且此时arena还没有真正分配内存
         PoolThreadCache cache = threadCache.get();
         PoolArena<byte[]> heapArena = cache.heapArena;
 
         final ByteBuf buf;
         if (heapArena != null) {
-            //使用arena 分配内存
             buf = heapArena.allocate(cache, initialCapacity, maxCapacity);
         } else {
-            //不存在 arena 情况下就使用 unpooled
+            // 当heapArena不存在时 降级成unpooled对象
             buf = PlatformDependent.hasUnsafe() ?
                     new UnpooledUnsafeHeapByteBuf(this, initialCapacity, maxCapacity) :
                     new UnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
@@ -495,7 +492,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
     }
 
     /**
-     * 缓存对象
+     * 每个线程绑定一份headArena/directArena
      */
     final class PoolThreadLocalCache extends FastThreadLocal<PoolThreadCache> {
         private final boolean useCacheForAllThreads;
@@ -506,17 +503,19 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
 
         @Override
         protected synchronized PoolThreadCache initialValue() {
-            //从数组对象中 选择 被多线程分配 最小的 arena
+            // 每个arena此时都可能还在使用中, 所以新的线程要找到一个使用率最小的arena对象
             final PoolArena<byte[]> heapArena = leastUsedArena(heapArenas);
             final PoolArena<ByteBuffer> directArena = leastUsedArena(directArenas);
 
             Thread current = Thread.currentThread();
+
+            // 代表在所有线程上都使用内存块缓存机制   或者只有FastThreadLocalThread 支持使用内存块缓存机制
             if (useCacheForAllThreads || current instanceof FastThreadLocalThread) {
                 return new PoolThreadCache(
                         heapArena, directArena, tinyCacheSize, smallCacheSize, normalCacheSize,
                         DEFAULT_MAX_CACHED_BUFFER_CAPACITY, DEFAULT_CACHE_TRIM_INTERVAL);
             }
-            // No caching so just use 0 as sizes.  代表不进行缓存
+            // No caching so just use 0 as sizes.
             return new PoolThreadCache(heapArena, directArena, 0, 0, 0, 0, 0);
         }
 
@@ -530,7 +529,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         }
 
         /**
-         * 每个线程使用 arena 时 都会增加 该arena的 共享线程数量 这里要分配线程数 最小的arena 平分线程间的竞争
+         * 找到此时绑定线程数最少的arena 并进行分配
          * @param arenas
          * @param <T>
          * @return

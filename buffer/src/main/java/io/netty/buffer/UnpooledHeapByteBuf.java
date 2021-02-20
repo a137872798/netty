@@ -35,7 +35,7 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * {@link UnpooledByteBufAllocator#heapBuffer(int, int)}, {@link Unpooled#buffer(int)} and
  * {@link Unpooled#wrappedBuffer(byte[])} instead of calling the constructor explicitly.
  *
- * 非池化 heap 对象
+ * 基于堆内存实现buf 实际上就是一个数组
  */
 public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
 
@@ -129,6 +129,11 @@ public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
         return array.length;
     }
 
+    /**
+     * 基于新容量创建byte[] 并替换内部的byte[]
+     * @param newCapacity
+     * @return
+     */
     @Override
     public ByteBuf capacity(int newCapacity) {
         checkNewCapacity(newCapacity);

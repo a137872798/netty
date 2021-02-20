@@ -29,7 +29,7 @@ import java.nio.ByteOrder;
 abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
     /**
-     * 通过 recycle 对象 实现 资源重复利用
+     * 该对象是被哪个recycle进行管理的  recycle可以跨线程传输对象
      */
     private final Recycler.Handle<PooledByteBuf<T>> recyclerHandle;
 
@@ -124,7 +124,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
     /**
      * Method must be called before reuse this {@link PooledByteBufAllocator}
-     * 重置该对象
+     * 本对象会通过recycle对象进行重复利用,需要通过该方法重置相关属性
      */
     final void reuse(int maxCapacity) {
         //设置最大容量

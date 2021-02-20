@@ -17,7 +17,7 @@
 package io.netty.buffer;
 
 /**
- * 比page 更小的 内存 分配单位  到这里已经意味着在 chunk 进行内存分配时是 小于一个page 的大小了 否则 会 直接在chunk完成分配
+ * 比page更小的内存分配单位  这里定义了分配算法
  * @param <T>
  */
 final class PoolSubpage<T> implements PoolSubpageMetric {
@@ -76,7 +76,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
 
     /** Special constructor that creates a linked list head */
     /**
-     * 用于创建 链首的 构造方法 创建 一般的 subpage 是不走这边
+     * 创建链表头部元素时使用的构造函数
      * @param pageSize
      */
     PoolSubpage(int pageSize) {

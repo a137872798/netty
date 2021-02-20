@@ -32,20 +32,17 @@ import java.nio.ByteBuffer;
  * @param <T>
  */
 final class PoolChunkList<T> implements PoolChunkListMetric {
-    /**
-     * 空的迭代器对象
-     */
+
     private static final Iterator<PoolChunkMetric> EMPTY_METRICS = Collections.<PoolChunkMetric>emptyList().iterator();
     /**
-     * 竞技场对象 代表 该chunk 是从哪个 arena 上分配来的
+     * 该对象由哪个arena生成
      */
     private final PoolArena<T> arena;
     /**
-     * 下个 chunkList 对象
+     * 构成链表结构
      */
     private final PoolChunkList<T> nextList;
 
-    //小于最小的 会 该chunk 移动到上一个ChunkList 中 大于 最大的 会移动到下一个ChunkList中 chunkList 本身是以使用率 通过链表形式连接起来的
     /**
      * 代表该chunkList 所处的 最小使用率
      */
@@ -78,7 +75,6 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
         this.nextList = nextList;
         this.minUsage = minUsage;
         this.maxUsage = maxUsage;
-        //根据 最小使用率和 chunksize 计算最大容量
         maxCapacity = calculateMaxCapacity(minUsage, chunkSize);
     }
 
@@ -116,7 +112,7 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     /**
-     * 申请分配内存 就是从这里 关联到 Poolchunk的 内存分配的
+     * 申请分配内存
      * @param buf 申请的buf 对象
      * @param reqCapacity 实际申请的大小
      * @param normCapacity 这个应该是 转化过的 2的幂次大小

@@ -30,6 +30,8 @@ import java.nio.channels.ScatteringByteChannel;
 
 /**
  * Read-only ByteBuf which wraps a read-only ByteBuffer.
+ * 该对象内部直接包装了jdk的ByteBuffer
+ * 而ReadOnlyByteBuf是某个ByteBuf的包装类
  */
 class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
 
@@ -419,6 +421,7 @@ class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
     }
 
     protected final ByteBuffer internalNioBuffer() {
+        // 惰性初始化
         ByteBuffer tmpNioBuf = this.tmpNioBuf;
         if (tmpNioBuf == null) {
             this.tmpNioBuf = tmpNioBuf = buffer.duplicate();
@@ -431,6 +434,7 @@ class ReadOnlyByteBufferBuf extends AbstractReferenceCountedByteBuf {
         ensureAccessible();
         ByteBuffer src;
         try {
+            // 每次在使用前会清理指针 同时也代表这个对象本身是不支持线程安全的
             src = (ByteBuffer) internalNioBuffer().clear().position(index).limit(index + length);
         } catch (IllegalArgumentException ignored) {
             throw new IndexOutOfBoundsException("Too many bytes to read - Need " + (index + length));

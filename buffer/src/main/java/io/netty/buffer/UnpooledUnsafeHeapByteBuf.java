@@ -17,6 +17,9 @@ package io.netty.buffer;
 
 import io.netty.util.internal.PlatformDependent;
 
+/**
+ * 基于unsafe对象操作堆内存
+ */
 class UnpooledUnsafeHeapByteBuf extends UnpooledHeapByteBuf {
 
     /**

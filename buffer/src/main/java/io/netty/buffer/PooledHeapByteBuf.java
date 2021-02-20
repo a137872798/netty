@@ -27,7 +27,7 @@ import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 
 /**
- * 创建在 heap 上的 bytebuf 对象
+ * poolArena将分配的内存块池化  但是本对象是不需要做池化的 只是一个包装器 所以通过recycle对象实现资源复用
  */
 class PooledHeapByteBuf extends PooledByteBuf<byte[]> {
 

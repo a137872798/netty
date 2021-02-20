@@ -32,7 +32,7 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
      */
     private final UnpooledByteBufAllocatorMetric metric = new UnpooledByteBufAllocatorMetric();
     /**
-     * 是否禁用 资源泄露
+     * 是否禁用 资源泄露包装
      */
     private final boolean disableLeakDetector;
     /**
@@ -64,6 +64,7 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
      * @param disableLeakDetector {@code true} if the leak-detection should be disabled completely for this
      *                            allocator. This can be useful if the user just want to depend on the GC to handle
      *                            direct buffers when not explicit released.
+     *                                        默认会开启资源泄露检测
      */
     public UnpooledByteBufAllocator(boolean preferDirect, boolean disableLeakDetector) {
         this(preferDirect, disableLeakDetector, PlatformDependent.useDirectBufferNoCleaner());
@@ -87,7 +88,6 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
                 && PlatformDependent.hasDirectBufferNoCleanerConstructor();
     }
 
-    //通过 该分配器创建的对象其实是 一个 bytebuf 的子类对象 
 
     @Override
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
@@ -105,9 +105,15 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         } else {
             buf = new InstrumentedUnpooledDirectByteBuf(this, initialCapacity, maxCapacity);
         }
+        // 看来netty在没有禁用内存泄露的情况下 创建的directByteBuf 默认都是会包装一层资源泄露检测的
         return disableLeakDetector ? buf : toLeakAwareBuffer(buf);
     }
 
+    /**
+     * 这时创建的 compositeByteBuf只是一个空数组
+     * @param maxNumComponents
+     * @return
+     */
     @Override
     public CompositeByteBuf compositeHeapBuffer(int maxNumComponents) {
         CompositeByteBuf buf = new CompositeByteBuf(this, false, maxNumComponents);
@@ -148,8 +154,9 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         metric.heapCounter.add(-amount);
     }
 
-    //各种 bytebuf 对象 每当调用方法时 会 修改 metric 的数值
-
+    /**
+     * 就多了一个统计功能
+     */
     private static final class InstrumentedUnpooledUnsafeHeapByteBuf extends UnpooledUnsafeHeapByteBuf {
         InstrumentedUnpooledUnsafeHeapByteBuf(UnpooledByteBufAllocator alloc, int initialCapacity, int maxCapacity) {
             super(alloc, initialCapacity, maxCapacity);

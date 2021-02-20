@@ -32,6 +32,7 @@ import java.util.Collections;
 /**
  * {@link ByteBuf} implementation which allows to wrap an array of {@link ByteBuf} in a read-only mode.
  * This is useful to write an array of {@link ByteBuf}s.
+ * 该对象内部也维护了一组ByteBuf 但是不能再插入新的byteBuf
  */
 final class FixedCompositeByteBuf extends AbstractReferenceCountedByteBuf {
     private static final ByteBuf[] EMPTY = { Unpooled.EMPTY_BUFFER };
