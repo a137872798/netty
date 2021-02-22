@@ -59,7 +59,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
      */
     int maxLength;
     /**
-     * chunk 相关的 属性
+     * 申请内存时的线程对应的缓存对象  因为可以在其他线程释放buffer
      */
     PoolThreadCache cache;
     /**
@@ -78,20 +78,25 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     }
 
     /**
-     * 初始化
+     * 当从poolChunk申请到内存块后 要设置到buffer中
      * @param chunk
      * @param nioBuffer
-     * @param handle
+     * @param handle 本次操作结果 高32位和低32位有特殊含义
      * @param offset
      * @param length
      * @param maxLength
-     * @param cache
+     * @param cache 当某个线程申请内存后 会优先缓存在这个线程中 这样同一线程再次申请内存就不需要与其他线程竞争了
      */
     void init(PoolChunk<T> chunk, ByteBuffer nioBuffer,
               long handle, int offset, int length, int maxLength, PoolThreadCache cache) {
         init0(chunk, nioBuffer, handle, offset, length, maxLength, cache);
     }
 
+    /**
+     * 代表本次关联的PoolChunk申请的内存块超过了chunkSize 不推荐池化
+     * @param chunk
+     * @param length
+     */
     void initUnpooled(PoolChunk<T> chunk, int length) {
         init0(chunk, null, 0, chunk.offset, length, length, null);
     }
@@ -112,11 +117,14 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         assert chunk != null;
 
         this.chunk = chunk;
+        // 这里指向chunk申请的chunkSize大小的内存
         memory = chunk.memory;
         tmpNioBuf = nioBuffer;
         allocator = chunk.arena.parent;
         this.cache = cache;
         this.handle = handle;
+
+        // 因为memory对应chunkSize的内存块 多个bytebuf之间通过offset/length划分彼此的边界
         this.offset = offset;
         this.length = length;
         this.maxLength = maxLength;
@@ -147,7 +155,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     }
 
     /**
-     * 重置容量大小
+     * 尝试进行扩容
      * @param newCapacity
      * @return
      */
@@ -166,12 +174,12 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         } else {
             //池化 进行扩容
             if (newCapacity > length) {
-                //在 小于maxLength 之前  直接修改length
+                // 因为实际上分配给该buffer的内存块可能会略大于一开始申请的容量  这样就不需要重新分配了 直接修改length就可以
                 if (newCapacity <= maxLength) {
                     length = newCapacity;
                     return this;
                 }
-                //要缩容
+                //要缩容 这里不涉及到再分配
             } else if (newCapacity < length) {
                 //先进行位运算 代表 大于 maxLength 的 一半
                 if (newCapacity > maxLength >>> 1) {
@@ -197,7 +205,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         }
 
         // Reallocation required.
-        // 非池化 就需要重新分配了
+        // 这里需要重新分配 并且默认会释放之前的内存
         chunk.arena.reallocate(this, newCapacity, true);
         return this;
     }

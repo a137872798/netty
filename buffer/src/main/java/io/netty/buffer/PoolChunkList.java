@@ -112,7 +112,7 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
     }
 
     /**
-     * 申请分配内存
+     * 从之前申请的chunk中继续分配内存
      * @param buf 申请的buf 对象
      * @param reqCapacity 实际申请的大小
      * @param normCapacity 这个应该是 转化过的 2的幂次大小
@@ -126,7 +126,7 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
             return false;
         }
 
-        //从该ChunkList 中 依次获取每个Chunk
+        //chunkList 内部就是存储了一组chunk内存
         for (PoolChunk<T> cur = head; cur != null; cur = cur.next) {
             //尝试进行分配
             if (cur.allocate(buf, reqCapacity, normCapacity)) {
@@ -185,7 +185,7 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
             assert chunk.usage() == 0;
             return false;
         }
-        //这个 move 一旦 使用率合适 反而会加入到 chunkList 中
+        //移动到合适的chunkList中
         return prevList.move(chunk);
     }
 

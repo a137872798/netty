@@ -76,7 +76,7 @@ final class PoolThreadCache {
      * @param heapArena
      * @param directArena
      * @param tinyCacheSize
-     * @param smallCacheSize
+     * @param smallCacheSize 对应的某种规格的内存块缓存队列长度 也就是某一规格允许缓存多少个内存块
      * @param normalCacheSize
      * @param maxCachedBufferCapacity
      * @param freeSweepAllocationThreshold
@@ -100,7 +100,7 @@ final class PoolThreadCache {
             smallSubPageDirectCaches = createSubPageCaches(
                     smallCacheSize, directArena.numSmallSubpagePools, SizeClass.Small);
 
-            //代表 2的 多少次 能变成 pageSize
+            //代表1<<? 多少次 能变成 pageSize
             numShiftsNormalDirect = log2(directArena.pageSize);
             //创建 normal 大小的 缓存对象 也就是 以chunk 为单位
             normalDirectCaches = createNormalCaches(
@@ -152,8 +152,8 @@ final class PoolThreadCache {
      * 线程只要分配过内存块,一种激进的优化策略是认为该线程之后还会分配相同的内存块 所以在这一层上再做一个缓存
      * (内存块不会直接归还回arena 而是先保留在cache中 当线程被回收时将cache中所有内存块一次性归还到arena 但是这样做的前提是线程数少)
      * @param cacheSize
-     * @param numCaches  Tiny 默认是 32 Small 是4
-     * @param sizeClass  Tiny or small
+     * @param numCaches  有多少种大小的内存块
+     * @param sizeClass  Tiny or small or normal
      * @param <T>
      * @return
      */
@@ -249,8 +249,7 @@ final class PoolThreadCache {
         }
         //使用缓存 分配 内存 如果没有缓存对象就会返回false
         boolean allocated = cache.allocate(buf, reqCapacity);
-        //如果 使用缓存的次数超过了一个 阈值 开始清除很少使用的缓存 这个值是不能减的 直到到达 阈值 清除
-        //这个每次 一定都会释放一定数量的 缓存 那不是越频繁越容易释放了吗 跟说法好像不一样啊
+        //每个线程不适合过长时间占用缓存内存块 所以当调用一定次数后会将所有缓存释放
         if (++ allocations >= freeSweepAllocationThreshold) {
             allocations = 0;
             trim();
@@ -261,7 +260,7 @@ final class PoolThreadCache {
     /**
      * Add {@link PoolChunk} and {@code handle} to the cache if there is enough room.
      * Returns {@code true} if it fit into the cache {@code false} otherwise.
-     * 将chunk 对象 设置到 缓存中
+     * 当在某个线程上某个pooledByteBuf引用计数归0后, 释放内存时会优先选择存储在本地线程中
      */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     boolean add(PoolArena<?> area, PoolChunk chunk, ByteBuffer nioBuffer,
@@ -433,6 +432,7 @@ final class PoolThreadCache {
      */
     private MemoryRegionCache<?> cacheForNormal(PoolArena<?> area, int normCapacity) {
         if (area.isDirect()) {
+            // 兑换成下标
             int idx = log2(normCapacity >> numShiftsNormalDirect);
             return cache(normalDirectCaches, idx);
         }
@@ -492,9 +492,14 @@ final class PoolThreadCache {
      */
     private abstract static class MemoryRegionCache<T> {
 
+        /**
+         * 队列长度  代表某种规格的内存块允许在本线程缓存多少个
+         */
         private final int size;
         /**
          * 缓存队列 是 mpsc 队列 这里指 允许单个添加 多个使用
+         * 可以在任何线程释放在某一线程创建的 PooledByteBuf对象 所以使用mpsc队列
+         * 也就是支持在业务线程释放buffer在netty的io线程申请buffer
          */
         private final Queue<Entry<T>> queue;
         /**
@@ -532,7 +537,7 @@ final class PoolThreadCache {
             boolean queued = queue.offer(entry);
             if (!queued) {
                 // If it was not possible to cache the chunk, immediately recycle the entry
-                //入队失败 立刻回收
+                // 缓存队列已满 释放chunk
                 entry.recycle();
             }
 

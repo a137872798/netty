@@ -44,6 +44,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         Tiny,
         //以512为单位
         Small,
+        // pageSize< ? < chunkSize
         Normal
     }
 
@@ -75,7 +76,8 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     final int directMemoryCacheAlignment;
     final int directMemoryCacheAlignmentMask;
     /**
-     * 存放 tinysubpage 和 smallsubpage 的数组对象tiny以16b为单位递增  small以512b为单位翻倍
+     * tinySubpagePools 长度为32 数组中每个元素内内存块大小为16的倍数 从16->512   当刚好需要512byte时会分配一个smallpage
+     * smallSubpagePools 长度为4 数组中每个元素内内存块大小为 512 1024 1536 2048
      */
     private final PoolSubpage<T>[] tinySubpagePools;
     private final PoolSubpage<T>[] smallSubpagePools;
@@ -92,7 +94,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     private final List<PoolChunkListMetric> chunkListMetrics;
 
-    // Metrics for allocations and deallocations
+    // Metrics for allocations and deallocations  记录申请 pageSize< ? <chunkSize 的内存块次数
     private long allocationsNormal;
     // We need to use the LongCounter here as this is not guarded via synchronized block.
     /**
@@ -150,7 +152,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
         // 便于快速比较分配的大小与page的关系
         subpageOverflowMask = ~(pageSize - 1);
-        //一个arena中存在32个tiny大小的内存块
+        //代表针对tiny内存块存在32种大小的数组
         tinySubpagePools = newSubpagePoolArray(numTinySubpagePools);
         for (int i = 0; i < tinySubpagePools.length; i ++) {
             //都先创建 PoolHead 对象
@@ -158,7 +160,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         numSmallSubpagePools = pageShifts - 9;
-        //默认存在4个small大小的内存块
+        //默认存在4个small大小的内存块 512 1024 1536 2048
         smallSubpagePools = newSubpagePoolArray(numSmallSubpagePools);
         for (int i = 0; i < smallSubpagePools.length; i ++) {
             //使用head填充数组
@@ -285,7 +287,6 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             //tiny or small
             boolean tiny = isTiny(normCapacity);
 
-            // 每个tiny大小为16 tiny总大小为512
             if (tiny) { // < 512
                 // 如果调用该方法的线程之前已经申请了空闲的tiny大小的内存块 直接使用
                 if (cache.allocateTiny(this, buf, reqCapacity, normCapacity)) {
@@ -316,12 +317,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
              */
             synchronized (head) {
                 final PoolSubpage<T> s = head.next;
-                // 当subPage还没有分配任何内存块的时候 next指向自身
+                // 当subPage还没有分配任何内存块的时候 next指向自身  当之前针对某个tiny/small大小生成PooledSubPage后会连接到head后
                 if (s != head) {
-                    //判断 未销毁 且大小要相符
                     assert s.doNotDestroy && s.elemSize == normCapacity;
-                    //分配后 获得handle 因为subpage也是 chunk 创建的所以这个handle 高32位记录了 分配的是数组中哪个内存
-                    //低32位代表是 哪个 page 创建的subpage
+                    // 之前已经申请了一个page的大小用于分配某一规格的tiny/small内存块 这里尝试寻找空闲内存
                     long handle = s.allocate();
                     assert handle >= 0;
                     //使用subpage 初始化 chunk
@@ -332,7 +331,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                 }
             }
 
-            // 代表此时还没有分配任何内存 一次性申请大块内存
+            // 代表此时还没有分配任何内存 创建一个poolChunk(此时已经完成了chunkSize的内存申请) 并按需划分内存
             synchronized (this) {
                 allocateNormal(buf, reqCapacity, normCapacity);
             }
@@ -341,9 +340,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             incTinySmallAllocation(tiny);
             return;
         }
-        //如果小于一个chunk 的大小 就可以直接在 chunk 上进行分配
+        //代表申请的大小小于chunkSize
         if (normCapacity <= chunkSize) {
-            //先从缓存中分配
+            //先尝试从本地线程缓存中获取
             if (cache.allocateNormal(this, buf, reqCapacity, normCapacity)) {
                 // was able to allocate out of the cache so move on
                 return;
@@ -355,7 +354,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             }
         } else {
             // Huge allocations are never served via the cache so just call allocateHuge
-            //超过一个chunk 的单位进行 分配
+            //当申请的内存块大小超过chunk时 不支持进行池化
             allocateHuge(buf, reqCapacity);
         }
     }
@@ -368,6 +367,8 @@ abstract class PoolArena<T> implements PoolArenaMetric {
      * 首次分配一个内存块
      */
     private void allocateNormal(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
+        // 代表此时有可用的内存块 不需要重复分配 注意这里复用内存块存在一个优先级顺序
+        // 先从使用率较高的q050开始获取, 这时倾向于复用之前创建的内存,之后是025/000 倾向于分配新内存 最后是075
         if (q050.allocate(buf, reqCapacity, normCapacity) || q025.allocate(buf, reqCapacity, normCapacity) ||
             q000.allocate(buf, reqCapacity, normCapacity) || qInit.allocate(buf, reqCapacity, normCapacity) ||
             q075.allocate(buf, reqCapacity, normCapacity)) {
@@ -375,9 +376,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         // Add a new chunk.
-        // 需要创建一个新的chunk 对象
+        // chunk对象内包含了分配算法的实现
         PoolChunk<T> c = newChunk(pageSize, maxOrder, pageShifts, chunkSize);
-        //使用该chunk 对象 分配内存 会根据 capacity 大小选择分配 subpage or page
+        // 此时内存已经分配完成了 会将chunk大小的内存中可以使用的部分对应的offset/length设置到 pooledByteBuf中
         boolean success = c.allocate(buf, reqCapacity, normCapacity);
         assert success;
         //加入到 init 中 随着使用率上升 会移动到 使用率更高的ChunkList 中
@@ -409,7 +410,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     }
 
     /**
-     * 释放 内存
+     * 当某个由本对象创建的pooledByteBuf引用计数清0后 会将对应的chunk的内存块标记成可用状态
      * @param chunk 旧的chunk对象
      * @param nioBuffer
      * @param handle 用来定位使用了哪个page 以及使用了 哪个subpage(如果有的话)
@@ -417,25 +418,25 @@ abstract class PoolArena<T> implements PoolArenaMetric {
      * @param cache
      */
     void free(PoolChunk<T> chunk, ByteBuffer nioBuffer, long handle, int normCapacity, PoolThreadCache cache) {
-        //如果是非池化 就不会回到缓存中  非池化 对象 就是huge 对象 因为该对象不适合做缓存
+
+        // 代表本次分配的是一个huge内存 不支持池化
         if (chunk.unpooled) {
             int size = chunk.chunkSize();
-            //销毁chunk 对象
+            //销毁chunk对象  也就是回收内存
             destroyChunk(chunk);
             //将 可以用的huge 对象减少
             activeBytesHuge.add(-size);
             //增加回收的huge 对象
             deallocationsHuge.increment();
         } else {
-            //判定是 哪种大小的 内存块 这里已经默认是 normal small tiny 了
             SizeClass sizeClass = sizeClass(normCapacity);
-            //尝试 将 chunk 还到cache 中
+            // 优先选择将内存块归还到本地线程中
             if (cache != null && cache.add(this, chunk, nioBuffer, handle, normCapacity, sizeClass)) {
                 // cached so not free it.
                 return;
             }
 
-            //释放的情况 释放chunk
+            // 代表本地线程(创建buffer的io线程 缓存已经满了 只能归还内存到chunk中)
             freeChunk(chunk, handle, sizeClass, nioBuffer);
         }
     }
@@ -475,10 +476,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                 //不应该存在的 内存 规格
                 throw new Error();
             }
-            //委托到 chunkList 进行free  最终还是 委托到 chunk.free 只是 这里会 根据使用率判断是否要移动chunk 对象
+            //尝试移动chunk的位置 (因为chunk内存使用率发生了变化)
             destroyChunk = !chunk.parent.free(chunk, handle, nioBuffer);
         }
-        //使用率为0 时 会设置成 true 这时需要释放内存
+        //当该chunk内所有内存都释放完毕后 使用率归0 就可以释放chunk了
         if (destroyChunk) {
             // destroyChunk not need to be called while holding the synchronized lock.
             // 销毁不需要 内置锁 包裹
@@ -567,7 +568,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     }
 
     /**
-     * 再分配
+     * 某个PooledByteBuf此时分配的内存量不合适 需要重新分配
      * @param buf 分配的内存 存放的 buf对象
      * @param newCapacity 新的 申请大小
      * @param freeOldMemory 是否要释放旧的内存
@@ -587,7 +588,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         PoolChunk<T> oldChunk = buf.chunk;
         //获取 临时的 bytebuf 对象
         ByteBuffer oldNioBuffer = buf.tmpNioBuf;
-        //获取 旧的handle 对象 这个 值也是代表使用的 是哪个page
+        //通过handle可以追踪到buf的内存块是从哪个chunk的什么位置分配来的
         long oldHandle = buf.handle;
         //旧的内存对象
         T oldMemory = buf.memory;
@@ -615,7 +616,6 @@ abstract class PoolArena<T> implements PoolArenaMetric {
                 }
                 memoryCopy(
                         oldMemory, oldOffset + readerIndex,
-                        //只复制了 未完成的部分
                         buf.memory, buf.offset + readerIndex, writerIndex - readerIndex);
             } else {
                 //读写指针 同时缩小  这里数据都已经读完 就不用复制了
@@ -625,9 +625,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
         buf.setIndex(readerIndex, writerIndex);
 
-        //如果要释放旧内存
+        //代表需要释放旧的内存块
         if (freeOldMemory) {
-            //释放 旧的内存  因为 指定了 chunk 和 handle 就能知道 释放的是哪块内存了
+            //释放旧的内存  因为指定了chunk和handle就能知道释放的是哪块内存了
             free(oldChunk, oldNioBuffer, oldHandle, oldMaxLength, buf.cache);
         }
     }
@@ -939,7 +939,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         /**
-         * 就是创建一个 byte[] 对象 里面不知道搞了什么骚操作
+         * 就是创建一个 byte[] 对象
          * @param size
          * @return
          */
@@ -957,7 +957,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         /**
-         * 生成一个新的 chunk 对象
+         * 分配一个chunk大小的内存块
          * @param pageSize
          * @param maxOrder
          * @param pageShifts
@@ -966,7 +966,6 @@ abstract class PoolArena<T> implements PoolArenaMetric {
          */
         @Override
         protected PoolChunk<byte[]> newChunk(int pageSize, int maxOrder, int pageShifts, int chunkSize) {
-            //一般默认偏移量都是 0 可能只有对 direct 有用
             return new PoolChunk<byte[]>(this, newByteArray(chunkSize), pageSize, maxOrder, pageShifts, chunkSize, 0);
         }
 
@@ -989,7 +988,6 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         }
 
         /**
-         * 创建池化的bytebuf对象 先判断是否支持unsafe 这个对象在创建时还是没有memory对象的需要通过调用一个init方法设置内存对象
          * @param maxCapacity
          * @return
          */
@@ -1058,13 +1056,13 @@ abstract class PoolArena<T> implements PoolArenaMetric {
         @Override
         protected PoolChunk<ByteBuffer> newChunk(int pageSize, int maxOrder,
                 int pageShifts, int chunkSize) {
-            //这个对齐不知道什么用 不过一般都是0
             if (directMemoryCacheAlignment == 0) {
                 return new PoolChunk<ByteBuffer>(this,
                         //根据指定大小分配直接内存
                         allocateDirect(chunkSize), pageSize, maxOrder,
                         pageShifts, chunkSize, 0);
             }
+            // 默认对齐值都是0 先忽略
             final ByteBuffer memory = allocateDirect(chunkSize
                     + directMemoryCacheAlignment);
             return new PoolChunk<ByteBuffer>(this, memory, pageSize,
@@ -1098,7 +1096,6 @@ abstract class PoolArena<T> implements PoolArenaMetric {
          */
         private static ByteBuffer allocateDirect(int capacity) {
             return PlatformDependent.useDirectBufferNoCleaner() ?
-                    //unsafe 创建的好像能直接定位到地址 可能使用unsafe 创建的  释放也直接操纵unsafe了                   //没有使用unsafe 而是使用nio
                     PlatformDependent.allocateDirectNoCleaner(capacity) : ByteBuffer.allocateDirect(capacity);
         }
 

@@ -92,17 +92,17 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
      * 创建一个 subPage 对象
      * @param head
      * @param chunk
-     * @param memoryMapIdx
+     * @param memoryMapIdx  对应chunk.memoryMap数组的下标 从2048~4095 代表从哪个下标对应的page划分出来
      * @param runOffset
      * @param pageSize 代表page 的大小
-     * @param elemSize 代表每个 subpage 的大小
+     * @param elemSize 代表这个page将会以这个大小进行进一步拆分
      */
     PoolSubpage(PoolSubpage<T> head, PoolChunk<T> chunk, int memoryMapIdx, int runOffset, int pageSize, int elemSize) {
         this.chunk = chunk;
         this.memoryMapIdx = memoryMapIdx;
         this.runOffset = runOffset;
         this.pageSize = pageSize;
-        //当page 大小默认为8k 时 bitmap 长度为 8bit
+        // 16是最小的内存块规格
         bitmap = new long[pageSize >>> 10]; // pageSize / 16 / 64
         init(head, elemSize);
     }
@@ -115,21 +115,21 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
     void init(PoolSubpage<T> head, int elemSize) {
         //未销毁
         doNotDestroy = true;
-        //设置subpage 的大小
+        //subpage的内存块大小  page会被拆分成该大小的多个内存块
         this.elemSize = elemSize;
         if (elemSize != 0) {
             //存在 多少个 小的内存块 (多少个 element)
             maxNumElems = numAvail = pageSize / elemSize;
-            //一开始能使用的下个内存块就是从0开始
+            //首次从0开始获取
             nextAvail = 0;
-            //真正使用的数组数量 因为bitmap 是将 element 看作是 最小的 16b 实际上还有其他规格
+
+            // 通过位图快速判断某些内存块是否被分配
             bitmapLength = maxNumElems >>> 6;
             //代表 还有余数 进一  因为上面的除是去尾法
             if ((maxNumElems & 63) != 0) {
                 bitmapLength ++;
             }
 
-            //将每位都设置成0
             for (int i = 0; i < bitmapLength; i ++) {
                 bitmap[i] = 0;
             }
@@ -154,20 +154,19 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
 
         //获取下个 还没有分配的对象
         final int bitmapIdx = getNextAvail();
-        //获取 对于bitmap 的下标
+        // 换算成位图数组的下标
         int q = bitmapIdx >>> 6;
-        //  /64 得到 对于 bitmap[q] 的第几位
         int r = bitmapIdx & 63;
         assert (bitmap[q] >>> r & 1) == 0;
         //将 对应位置的值 修改为1 代表已经被分配过
         bitmap[q] |= 1L << r;
 
-        //如果没有能分配的 移除该节点  没有体现出pool 啊 这样不就利用GC 回收了吗
+        // 当所有内存块都被使用后触发
         if (-- numAvail == 0) {
             removeFromPool();
         }
 
-        //计算handle 值 高32位代表 subpage中分配到了第几个 低32位代表 使用的是 chunk 中的第几个page
+        //计算handle 值 高32位代表 subpage中分配到了第几个 低32位代表 使用的是 chunk.memoryMap的下标对应的page
         return toHandle(bitmapIdx);
     }
 
@@ -190,18 +189,16 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
         //设置成0
         bitmap[q] ^= 1L << r;
 
-        //将该位置设置成下个可分配地址  难怪要特地设置一个 nextAvail 为了避免内存碎片化
         setNextAvail(bitmapIdx);
 
-        //如果一开始是0 又重新回到 pool 链中 都不在链中 是怎么找到这个元素的???
         if (numAvail ++ == 0) {
             addToPool(head);
             return true;
         }
 
-        //可用的 小于最大数量直接返回true
         if (numAvail != maxNumElems) {
             return true;
+            // 当所有内存都归还时 释放内存块,避免内存泄露
         } else {
             // 代表 全都是可用
             // Subpage not in use (numAvail == maxNumElems)
@@ -234,7 +231,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
     }
 
     /**
-     * 将自身从链表中移除
+     * 将自身从链表中移除  这样arena在直接分配内存时就访问不到这个节点就可以避免无意义的消耗
      */
     private void removeFromPool() {
         assert prev != null && next != null;
@@ -254,7 +251,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
      */
     private int getNextAvail() {
         int nextAvail = this.nextAvail;
-        //第一次会是0
+        //第一次是0
         if (nextAvail >= 0) {
             //设置为-1 代表下次需要重新查找
             this.nextAvail = -1;
@@ -274,7 +271,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
         final int bitmapLength = this.bitmapLength;
         for (int i = 0; i < bitmapLength; i ++) {
             long bits = bitmap[i];
-            //1代表占用 0 代表 未使用 ~0 == 0 代表 64位 全是 1
+            // 代表还有内存可以分配
             if (~bits != 0) {
                 //这里是 定位到第 几个元素可以分配
                 return findNextAvail0(i, bits);
@@ -285,7 +282,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
     }
 
     /**
-     * 从给定的 bitmap 元素中 进一步确定第几位 是可以分配的
+     * 这里就是位图操作
      * @param i 代表bitmap 的第几个元素
      * @param bits 该元素
      * @return
@@ -322,7 +319,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
      * @return
      */
     private long toHandle(int bitmapIdx) {
-        //最前面的值是用来 解决冲突的  相当与是标识 这个hanle 是从subpage 获取来的 然后后面高32位代表在bitmap 中的下标
+        //最前面的值是用来解决冲突的 相当于标识这个handle 是从subpage 获取来的 然后后面高32位代表在bitmap 中的下标
         //低32位代表 memoryMap的下标也就是使用 第几个 page
         return 0x4000000000000000L | (long) bitmapIdx << 32 | memoryMapIdx;
     }
