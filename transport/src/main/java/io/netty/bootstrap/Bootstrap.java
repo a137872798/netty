@@ -166,7 +166,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     }
 
     /**
-     * 连接到远程地址的核心方法
+     *
      * @see #connect()
      */
     private ChannelFuture doResolveAndConnect(final SocketAddress remoteAddress, final SocketAddress localAddress) {
@@ -175,13 +175,14 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
         final Channel channel = regFuture.channel();
 
         if (regFuture.isDone()) {
+            // 已经失败直接返回
             if (!regFuture.isSuccess()) {
                 return regFuture;
             }
-            //实际处理
             return doResolveAndConnect0(channel, remoteAddress, localAddress, channel.newPromise());
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
+            // 因为注册到事件循环组本身是一个异步的动作 所以这里追加监听器
             final PendingRegistrationPromise promise = new PendingRegistrationPromise(channel);
             regFuture.addListener(new ChannelFutureListener() {
                 @Override
@@ -206,7 +207,6 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     }
 
     /**
-     * 连接的 核心方法
      * @param channel
      * @param remoteAddress
      * @param localAddress
@@ -221,9 +221,6 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             //创建 解析地址对象
             final AddressResolver<SocketAddress> resolver = this.resolver.getResolver(eventLoop);
 
-            /**
-             * 好像是地址不合理
-             */
             if (!resolver.isSupported(remoteAddress) || resolver.isResolved(remoteAddress)) {
                 // Resolver has no idea about what to do with the specified remote address or it's resolved already.
                 //解析无效还是尝试 连接
@@ -303,8 +300,6 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
     void init(Channel channel) throws Exception {
         //获取channel 关联的 pipeline 对象 当channel 被初始化时 就会调用 newPipeline 创建该对象
         ChannelPipeline p = channel.pipeline();
-        //默认在初始化时 就为pipeline 设置一个 handler 这个handler 其实就是从bootstrap 自身取出来的  config 内部就是委托给bootstrap
-        //一般在这里设置的就是 ChannelInitializer
         p.addLast(config.handler());
 
         //获取 设置在 bootstrap 的 配置信息

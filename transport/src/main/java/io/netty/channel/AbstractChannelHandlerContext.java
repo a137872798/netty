@@ -36,9 +36,7 @@ import java.net.SocketAddress;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 /**
- * 上下文对象的 骨架类
- *
- * pipeline  的 invokeChannelRegistered(ctx) 会从head 节点开始调用 而ChannelHandlerContext(ctx) 会从 给定的节点开始触发调用连
+ * 在责任链中传递的上下文对象 包含channel/eventloop 等信息
  */
 abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         implements ChannelHandlerContext, ResourceLeakHint {
@@ -55,7 +53,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     /**
      * {@link ChannelHandler#handlerAdded(ChannelHandlerContext)} is about to be called.
      *
-     * 等待添加元素
+     * 该对象还未设置handler
      */
     private static final int ADD_PENDING = 1;
     /**
@@ -78,6 +76,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
      */
     private static final int INIT = 0;
 
+    // 相关的handler是否支持处理输入/输出消息
     private final boolean inbound;
     private final boolean outbound;
     /**
@@ -88,14 +87,12 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
      * 对应的 handler 的唯一名字
      */
     private final String name;
-    /**
-     * 是否是有序的  如果使用了 eventloop 也就是true
-     */
+
     private final boolean ordered;
 
     // Will be set to null if no child executor should be used, otherwise it will be set to the
-    // child executor. 如果没有针对 该 context 设置 独立的 executor 就会为null 那么事件处理就会使用channel.eventloop
-    // 可以选择 设置 DefaultEventExecutor
+    // child executor.
+    // 如果没有针对 该 context 设置 独立的 executor 就会为null 那么事件处理就会使用channel.eventloop
     final EventExecutor executor;
     private ChannelFuture succeededFuture;
 
@@ -107,7 +104,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     private Runnable invokeFlushTask;
 
     /**
-     * 默认 创建时 就是 init
+     * 默认创建时就是init 这时还没有设置handler
      */
     private volatile int handlerState = INIT;
 
@@ -117,12 +114,12 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         this.pipeline = pipeline;
         //这个有可能会是null
         this.executor = executor;
-        //根据该handler 实现哪种类型 判定是 in or out
 
+        //根据该handler 实现哪种类型 判定是 in or out
         this.inbound = inbound;
         this.outbound = outbound;
         // Its ordered if its driven by the EventLoop or the given Executor is an instanceof OrderedEventExecutor.
-        //如果是 eventloop 就是 ordered  或者该 事件处理器 实现了 orderedEventExecutor 接口
+        // 未设置executor就是 ordered  或者该 事件处理器 实现了 orderedEventExecutor 接口
         ordered = executor == null || executor instanceof OrderedEventExecutor;
     }
 
@@ -137,7 +134,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 获取buf 分配器
+     * 获取buf分配器  因为生成数据 或者接收数据都需要buffer
      * @return
      */
     @Override
@@ -146,7 +143,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 果然默认就是返回channel 的 eventloop  那么为什么要给每个context 设置独立的 executor 呢
+     * 默认情况handler的处理都是交由事件循环线程 如果手动设置了业务线程 那么会使用业务线程处理
      * @return
      */
     @Override

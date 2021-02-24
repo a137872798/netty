@@ -43,14 +43,12 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
  * The default {@link ChannelPipeline} implementation.  It is usually created
  * by a {@link Channel} implementation when the {@link Channel} is created.
  *
- * pipeline 对象 就是 关联一系列 handler 对象的 处理链
  */
 public class DefaultChannelPipeline implements ChannelPipeline {
 
     static final InternalLogger logger = InternalLoggerFactory.getInstance(DefaultChannelPipeline.class);
 
     //首尾节点的名字
-
     private static final String HEAD_NAME = generateName0(HeadContext.class);
     private static final String TAIL_NAME = generateName0(TailContext.class);
 
@@ -82,15 +80,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     private final Channel channel;
     private final ChannelFuture succeededFuture;
     private final VoidChannelPromise voidPromise;
-    /**
-     * 检验资源泄露的  先不管
-     */
+
     private final boolean touch = ResourceLeakDetector.isEnabled();
 
-    /**
-     * 维护了  eventloopGroup 与eventloop 的 关联关系
-     */
     private Map<EventExecutorGroup, EventExecutor> childExecutors;
+    /**
+     * 这个是推断消息体大小的
+     */
     private volatile MessageSizeEstimator.Handle estimatorHandle;
     private boolean firstRegistration = true;
 

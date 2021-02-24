@@ -127,7 +127,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         if (channelClass == null) {
             throw new NullPointerException("channelClass");
         }
-        //这里同时 设置 了 factory 对象 该工厂对象就是由 这个channel 生成的 该工厂生成的 就是传入的 channel 类型
+        // 通过反射实例化channel对象
         return channelFactory(new ReflectiveChannelFactory<C>(channelClass));
     }
 
@@ -263,8 +263,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     /**
      * Create a new {@link Channel} and register it with an {@link EventLoop}.
-     *
-     * 创建一个channel 对象 并绑定一个 eventloop 这里就是没有绑定的动作 也是创建 channel 并 设置 eventloop
+     * 创建一个channel 并绑定到事件循环组上
      */
     public ChannelFuture register() {
         validate();
@@ -318,7 +317,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
-     * 绑定 本地地址 并返回一个 promise 对象
+     * 绑定本地地址 通过监听返回的结果判断是否成功
      * @param localAddress
      * @return
      */
@@ -326,21 +325,21 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         //初始化channel 并且 注册 是一个异步操作 返回一个 future对象
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
-        //存在异常的情况直接返回
+        //已经产生了结果 直接返回future
         if (regFuture.cause() != null) {
             return regFuture;
         }
 
+        // 直接产生了结果 进行下一步将channel绑定到地址上
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             //创建 一个 针对该channel 的 promise 对象 用户就是通过操作这个promise对象来判断 操作是否完成
             ChannelPromise promise = channel.newPromise();
-            //这里 才是真正的绑定逻辑
             doBind0(regFuture, channel, localAddress, promise);
             return promise;
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
-            // 代表还没有完成 使用指定的 等待注册promise对象
+            // 上一步注册到事件循环组的任务还未完成  当完成后监听结果 并执行bind0
             final PendingRegistrationPromise promise = new PendingRegistrationPromise(channel);
             regFuture.addListener(new ChannelFutureListener() {
                 //当channel 创建完成 并且 绑定了 eventloop 和 将channel 注册到选择器上后
@@ -367,23 +366,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
-     * 初始化 channel 并完成注册
+     * 初始化 channel 并注册到事件循环组
      * @return
      */
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
-            //从工厂获取 channel 这个 工厂生成的 channel 类型是根据 本类成员变量 channel 决定的 也就是 .channel(NIOChannel.class)
-            //这里创建channel 就是生成了 JDK channel 并设置了 read or accept 事件 但是还没有注册到JDKchannel上
             channel = channelFactory.newChannel();
-            //初始化 获取的 channel  由子类实现
-
-            /*
-             * 1.Bootstrap 将 引导程序的 handler 设置到 channel 的 pipeline上 一般就是设置ChannelInitializer
-             * 转移opt attr 到channel 上
-             * 2.serverBootstrap 也是设置opt 和 attr 并个pipeline 设置ChannelInitializer 这里做了转发操作 将 接受到的新连接转发
-             * 也就是这里了handler 只不过 在handler 里头做了些逻辑处理
-             */
+            //channel刚创建完成时可能无法直接使用 所以需要做一些处理
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -391,18 +381,17 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
                 // 一般是句柄开启太多 使用unsafe 关闭channel 就是关闭JDK channel
                 channel.unsafe().closeForcibly();
                 // as the Channel is not registered yet we need to force the usage of the GlobalEventExecutor
+                // 这里使用全局线程池触发监听器 因为在这一步已经出错了 所以直接给future设置结果
                 return new DefaultChannelPromise(channel, GlobalEventExecutor.INSTANCE).setFailure(t);
             }
             // as the Channel is not registered yet we need to force the usage of the GlobalEventExecutor
-            // 这里 返回一个失败结果 这个操作还是同步的
+            // 这里返回的channel调用方法都会触发异常
             return new DefaultChannelPromise(new FailedChannel(), GlobalEventExecutor.INSTANCE).setFailure(t);
         }
 
-        //获取 bootstrap 的 事件循环组 并对 channel 进行注册 也就是为channel 设置EventLoop  也是异步操作
-        //因为一般设置的 都是 NioEventLoop 所以这里实现register 的是MultithreadEventLoopGroup(NioGroup的子类)
-        //该对象内部会 调用next.register 转发到某单个 eventloop对象 也就是SingleThreadEventLoop
+        // 将channel注册到事件循环组上
         ChannelFuture regFuture = config().group().register(channel);
-        //如果已经存在 异常 直接关闭 否则返回异步对象
+        // 注册失败关闭channel
         if (regFuture.cause() != null) {
             if (channel.isRegistered()) {
                 channel.close();
@@ -423,12 +412,15 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return regFuture;
     }
 
+    /**
+     * 对产生的channel 进行一些装配工作
+     * @param channel
+     * @throws Exception
+     */
     abstract void init(Channel channel) throws Exception;
 
     /**
-     * 执行 绑定方法 将生成的 channel 对象绑定到指定地址 这个也就是对应NIO编程中 JDKchannel 绑定地址的动作
-     *
-     * 这个promise 是之前调用bind 返回的 future 对象 用户就是通过操作这个对象来判断绑定是否完成
+     * 绑定逻辑需要监听selector 所以放到事件循环组中执行
      * @param regFuture
      * @param channel
      * @param localAddress
@@ -480,6 +472,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     /**
      * Returns the {@link AbstractBootstrapConfig} object that can be used to obtain the current config
      * of the bootstrap.
+     * 返回当前引导程序的配置
      */
     public abstract AbstractBootstrapConfig<B, C> config();
 
@@ -571,9 +564,6 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return buf.toString();
     }
 
-    /**
-     * 该类 是 专门针对 等待 channel 注册eventloop 的 promise 对象
-     */
     static final class PendingRegistrationPromise extends DefaultChannelPromise {
 
         // Is set to the correct EventExecutor once the registration was successful. Otherwise it will

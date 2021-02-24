@@ -163,7 +163,6 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         //获取channel 上的 pipeline
         ChannelPipeline p = channel.pipeline();
 
-        //获取 子 group 和 子 handler 因为 在abstractBootstrap 中设置的 是 parentgroup/parentHandler
         final EventLoopGroup currentChildGroup = childGroup;
         final ChannelHandler currentChildHandler = childHandler;
         //创建当前子属性的副本对象
@@ -176,23 +175,26 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             currentChildAttrs = childAttrs.entrySet().toArray(newAttrArray(0));
         }
 
-        //这里为 channel.pipeline 设置一个  ChannelInitializer handler 这里先不看了
         p.addLast(new ChannelInitializer<Channel>() {
+
+            /**
+             * 当服务端channel 注册到事件循环组成功后 将handler设置到serverChannel上
+             * @param ch            the {@link Channel} which was registered.
+             * @throws Exception
+             */
             @Override
             public void initChannel(final Channel ch) throws Exception {
                 final ChannelPipeline pipeline = ch.pipeline();
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
-                    //服务端会自动设置一个ChannelInitializer 对象后再设置 config.handler 对象
+                    // 当服务端channel 注册到事件循环上后 设置handler
                     pipeline.addLast(handler);
                 }
 
-                //能执行这里的 一定是独占线程
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
-                        //最后执行这个 因为如果 config.handler 也是ChannelInitializer 然后在里面使用eventloop添加任务 就会加在ServerBootstrapAcceptor的后面
-                        //相当于被吃掉了
+                        // 再额外追加一个handler 当接收到新的channel后 将这些handler，opt，attr等设置到客户端channel上
                         pipeline.addLast(new ServerBootstrapAcceptor(
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }
@@ -225,14 +227,12 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
     }
 
     /**
-     * 该对象 会在 channel register 也就是 注册到selector 上时 触发handler 对象并在任务尾部设置
-     *
-     * 该对象负责接受 ServerSocketChannel 接受到的 SocketChannel对象
+     * 接收到的客户端channel 会被装配上child相关的属性
      */
     private static class ServerBootstrapAcceptor extends ChannelInboundHandlerAdapter {
 
         /**
-         *
+         * 接收到的客户端channel 应该注册的事件循环组（worker线程组）
          */
         private final EventLoopGroup childGroup;
         private final ChannelHandler childHandler;
@@ -253,6 +253,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             // not be able to load the class because of the file limit it already reached.
             //
             // See https://github.com/netty/netty/issues/1328
+            // 当服务端channel 监听连接出现异常时 暂停监听 等待一定时间后重新开启
             enableAutoReadTask = new Runnable() {
                 @Override
                 public void run() {
@@ -262,14 +263,13 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         }
 
         /**
-         * 当触发之后的 读事件后 读到的是 client 的连接
+         * 该对象本身是设置在serverChannel上的 所以接收到的是客户端channel
          * @param ctx
          * @param msg
          */
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
-            //转换成 client channel
             final Channel child = (Channel) msg;
 
             //为 接受到的 channel 设置 handler 对象
@@ -284,7 +284,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             }
 
             try {
-                //将监听到的 SocketChannel 注册到 本服务端的 事件循环组上 设置监听read事件  该对象就是用来监听对应的clientSocketChannel 发送来的数据
+                // 注册到事件循环组
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {
@@ -309,7 +309,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         }
 
         /**
-         * 当捕获到异常时 会拦截下来  这里拦截的就是 serverSocketChannel 这条通道的 pipeline
+         * 当服务端监听连接出现异常时 先关闭自动监听
          * @param ctx
          * @param cause
          * @throws Exception
@@ -320,10 +320,9 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             if (config.isAutoRead()) {
                 // stop accept new connections for 1 second to allow the channel to recover
                 // See https://github.com/netty/netty/issues/1328
-                // 关闭自动读取 针对 ServerSocketChannel read 也就是 accept事件 出现异常时 先暂停获取新连接
-                // 怎么做到的 autoRead 只是在一开始 注册了accept 难道要在这里注销该事件吗???
+                // 先暂停自动监听
                 config.setAutoRead(false);
-                //在指定时间后 恢复 AutoRead 为true  这时又会重新触发 beginRead 注册accept事件
+                // 在一定延时后重新开启监听
                 ctx.channel().eventLoop().schedule(enableAutoReadTask, 1, TimeUnit.SECONDS);
             }
             // still let the exceptionCaught event flow through the pipeline to give the user

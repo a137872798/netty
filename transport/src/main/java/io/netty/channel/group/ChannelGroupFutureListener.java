@@ -22,6 +22,7 @@ import io.netty.util.concurrent.GenericFutureListener;
  * asynchronous {@link ChannelGroup} I/O operations is notified once this
  * listener is added by calling {@link ChannelGroupFuture#addListener(GenericFutureListener)}
  * and all I/O operations are complete.
+ * 相当于是对一组channel操作的结果的监听器
  */
 public interface ChannelGroupFutureListener extends GenericFutureListener<ChannelGroupFuture> {
 

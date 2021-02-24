@@ -28,9 +28,7 @@ import java.util.Map;
 
 /**
  * Exposes the configuration of an {@link AbstractBootstrap}.
- *
- * 引导程序的 配置类  B 代表 引导程序 类别(client or server)  C代表 channel 种类(NIOChannel)
- * 这个对象 设置了一堆 能够 获取 bootstrap 的成员的 方法
+ * 通过这个对象来访问引导程序的配置
  */
 public abstract class AbstractBootstrapConfig<B extends AbstractBootstrap<B, C>, C extends Channel> {
 

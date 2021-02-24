@@ -161,6 +161,7 @@ import java.util.concurrent.TimeUnit;
  *     // Connection established successfully
  * }
  * </pre>
+ * 针对channel的操作会返回一个 channelFuture
  */
 public interface ChannelFuture extends Future<Void> {
 

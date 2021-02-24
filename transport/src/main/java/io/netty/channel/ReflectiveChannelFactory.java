@@ -20,7 +20,7 @@ import io.netty.util.internal.StringUtil;
 
 /**
  * A {@link ChannelFactory} that instantiates a new {@link Channel} by invoking its default constructor reflectively.
- * 能够 生成 传入的 channel 对象的工厂
+ * 可以通过指定的channelClass反射生成channel对象
  */
 public class ReflectiveChannelFactory<T extends Channel> implements ChannelFactory<T> {
 

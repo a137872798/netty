@@ -26,6 +26,8 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
 /**
  * The default {@link ChannelPromise} implementation.  It is recommended to use {@link Channel#newPromise()} to create
  * a new {@link ChannelPromise} rather than calling the constructor explicitly.
+ * 在DefaultPromise的基础上增加了channel属性
+ * 以及一个checkpoint属性
  */
 public class DefaultChannelPromise extends DefaultPromise<Void> implements ChannelPromise, FlushCheckpoint {
 
@@ -53,6 +55,10 @@ public class DefaultChannelPromise extends DefaultPromise<Void> implements Chann
         this.channel = checkNotNull(channel, "channel");
     }
 
+    /**
+     * 当没有为promise指定触发监听器的执行器时 使用事件循环线程触发监听器
+     * @return
+     */
     @Override
     protected EventExecutor executor() {
         EventExecutor e = super.executor();
@@ -155,6 +161,7 @@ public class DefaultChannelPromise extends DefaultPromise<Void> implements Chann
 
     @Override
     protected void checkDeadLock() {
+        // 只有当channel 已经注册到事件循环组上时 才有检测死锁的必要
         if (channel().isRegistered()) {
             super.checkDeadLock();
         }

@@ -49,8 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Be aware that this class is marked as {@link Sharable} and so the implementation must be safe to be re-used.
  *
  * @param <C>   A sub-type of {@link Channel}
- *
- * 作为 netty handler 的 入口类 当channel 首次bind or connect时 会触发 active 事件 就应该会走到 这里
+ * 这个对象专门针对接收到channel的情况
  */
 @Sharable
 public abstract class ChannelInitializer<C extends Channel> extends ChannelInboundHandlerAdapter {
@@ -58,14 +57,13 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ChannelInitializer.class);
     // We use a Set as a ChannelInitializer is usually shared between all Channels in a Bootstrap /
     // ServerBootstrap. This way we can reduce the memory usage compared to use Attributes.
+    // 首先在事件循环线程中访问  所以不需要加锁 避免递归插入
     private final Set<ChannelHandlerContext> initMap = Collections.newSetFromMap(
             new ConcurrentHashMap<ChannelHandlerContext, Boolean>());
 
     /**
      * This method will be called once the {@link Channel} was registered. After the method returns this instance
      * will be removed from the {@link ChannelPipeline} of the {@link Channel}.
-     *
-     * 该方法由用户实现 一般就是 获取 该ch 对象并添加 一系列的handler 对象
      *
      * @param ch            the {@link Channel} which was registered.
      * @throws Exception    is thrown if an error occurs. In that case it will be handled by
@@ -75,7 +73,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     protected abstract void initChannel(C ch) throws Exception;
 
     /**
-     * 当channel 绑定到 selector 时 会触发 register 方法 也就是这里  执行handler 的 一定是 独占线程
+     * 当某个channel 注册到事件循环组成功后 开始装配
      * @param ctx
      * @throws Exception
      */
@@ -84,6 +82,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     public final void channelRegistered(ChannelHandlerContext ctx) throws Exception {
         // Normally this method will never be called as handlerAdded(...) should call initChannel(...) and remove
         // the handler.
+        // 装配channel
         if (initChannel(ctx)) {
             // we called initChannel(...) so we need to call now pipeline.fireChannelRegistered() to ensure we not
             // miss an event.
@@ -107,7 +106,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
 
     /**
      * {@inheritDoc} If override this method ensure you call super!
-     * 好像是先触发这个 才触发 handlerRegister的 那么在这里进行初始化 后该处理器已经从pipeline 中移除了
+     * 当追加了新的handler后 尝试装配channel   跟register只能触发一次initChannel(通过set避免重复操作)
      */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
@@ -126,8 +125,8 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     }
 
     /**
-     * 一般传入的 就是 headContext
-     * @param ctxAbstractTrafficShapingHandler
+     * 当接收到客户端连接后 进行初始化
+     * @param ctx
      * @return
      * @throws Exception
      */
@@ -168,7 +167,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
                 //从容器中移除
                 initMap.remove(ctx);
             } else {
-                //避免生成内存泄露
+                //避免造成内存泄露
                 // Ensure we always remove from the Map in all cases to not produce a memory leak.
                 ctx.channel().closeFuture().addListener(new ChannelFutureListener() {
                     @Override

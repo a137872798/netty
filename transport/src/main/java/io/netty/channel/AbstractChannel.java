@@ -40,7 +40,6 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * A skeletal {@link Channel} implementation.
  *
- * 通道对象  attribute 代表了 channel能设置属性的特性
  */
 public abstract class AbstractChannel extends DefaultAttributeMap implements Channel {
 
@@ -117,6 +116,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      *
      * @param parent
      *        the parent of this channel. {@code null} if there's no parent.
+     *        一般情况 parent都是null
      */
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
