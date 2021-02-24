@@ -78,7 +78,6 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
      *                              {@link ByteBuf}, which is backed by an byte array.
      */
     protected MessageToByteEncoder(boolean preferDirect) {
-        //找到对应的 类型匹配器  这里是在 初始化时 声明泛型了
         matcher = TypeParameterMatcher.find(this, MessageToByteEncoder.class, "I");
         this.preferDirect = preferDirect;
     }
@@ -108,7 +107,7 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         ByteBuf buf = null;
         try {
-            //判断 msg 是否是 指定类型
+            // 写入的消息类型是否是指定的类型
             if (acceptOutboundMessage(msg)) {
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;

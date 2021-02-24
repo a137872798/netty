@@ -35,6 +35,7 @@ import java.util.WeakHashMap;
  * The internal data structure that stores the thread-local variables for Netty and all {@link FastThreadLocal}s.
  * Note that this class is for internal use only and is subject to change at any time.  Use {@link FastThreadLocal}
  * unless you know what you are doing.
+ * 存储线程私有变量的容器
  */
 public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap {
 
@@ -130,6 +131,9 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes.
     public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8, rp9;
 
+    /**
+     * 存储线程私有变量的容器
+     */
     private InternalThreadLocalMap() {
         super(newIndexedVariableTable());
     }
@@ -303,15 +307,14 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
 
     /**
      * @return {@code true} if and only if a new thread-local variable has been created
-     * 为指定下标设置属性  这个index 是所有线程共用的  这个map 是归属于某个线程的
-     * 也就是说该 map 设置的index 可能会超过本线程的所有 FastThreadLocal 总和
+     * 往线程私有变量容器中插入新元素
      */
     public boolean setIndexedVariable(int index, Object value) {
         Object[] lookup = indexedVariables;
         if (index < lookup.length) {
             Object oldValue = lookup[index];
             lookup[index] = value;
-            //一开始应该都是用这个对象填充
+            // true代表新增了变量  false代表替换
             return oldValue == UNSET;
         } else {
             //扩容
@@ -320,6 +323,11 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         }
     }
 
+    /**
+     * 因为都是在本线程中访问 所以不需要加锁
+     * @param index
+     * @param value
+     */
     private void expandIndexedVariableTableAndSet(int index, Object value) {
         Object[] oldArray = indexedVariables;
         final int oldCapacity = oldArray.length;
@@ -353,8 +361,9 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         return index < lookup.length && lookup[index] != UNSET;
     }
 
+    // 检测位图标识
+
     /**
-     * 指定的 index (FastThreadLocal) 是否设置了 清理标识
      * @param index
      * @return
      */

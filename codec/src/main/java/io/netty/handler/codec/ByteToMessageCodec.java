@@ -31,16 +31,16 @@ import java.util.List;
  * Be aware that sub-classes of {@link ByteToMessageCodec} <strong>MUST NOT</strong>
  * annotated with {@link @Sharable}.
  *
- * 同时满足了 编码 和  解码 功能
+ * 同时满足了编码和解码功能
  */
 public abstract class ByteToMessageCodec<I> extends ChannelDuplexHandler {
 
     /**
-     * 编码 需要的 类型匹配
+     * 当传入的类型匹配时才进行解码
      */
     private final TypeParameterMatcher outboundMsgMatcher;
     /**
-     * 组合了一个编码对象
+     * 该对象可以对Object进行编码 并发送到下游
      */
     private final MessageToByteEncoder<I> encoder;
 

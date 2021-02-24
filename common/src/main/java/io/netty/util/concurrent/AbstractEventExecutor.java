@@ -29,14 +29,14 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Abstract base class for {@link EventExecutor} implementations.
- *
- * 事件处理器的 起点
+ * AbstractExecutorService 只是定义了提交任务的模板  指定提交任务后返回一个future对象 使用者可以通过监听future得到结果
+ * ThreadPoolExecutorService代表基于线程池实现任务执行者
  */
 public abstract class AbstractEventExecutor extends AbstractExecutorService implements EventExecutor {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractEventExecutor.class);
 
     /**
-     * 优雅关闭的 时间
+     * 优雅关闭的时间
      */
     static final long DEFAULT_SHUTDOWN_QUIET_PERIOD = 2;
     /**
@@ -48,14 +48,9 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
      * 事件循环组
      */
     private final EventExecutorGroup parent;
-    /**
-     * 单个对象的容器 就是为了满足 iterator
-     */
+
     private final Collection<EventExecutor> selfCollection = Collections.<EventExecutor>singleton(this);
 
-    /**
-     * 默认 执行器组对象不存在  对应 NioEventLoop -> NioEventLoopGroup
-     */
     protected AbstractEventExecutor() {
         this(null);
     }
@@ -121,7 +116,7 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
     }
 
     /**
-     * 返回带有进度的 promise 对象
+     * 返回一个可以设置进度的promise对象  根据当前进度不同 监听器会做不同的处理
      * @param <V>
      * @return
      */
@@ -131,7 +126,7 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
     }
 
     /**
-     * 返回成功 future
+     * 返回future的同时  这个future已经设置了成功的结果
      * @param result
      * @param <V>
      * @return
@@ -142,7 +137,6 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
     }
 
     /**
-     * 返回失败 future
      * @param cause
      * @param <V>
      * @return
@@ -179,8 +173,9 @@ public abstract class AbstractEventExecutor extends AbstractExecutorService impl
         return (Future<T>) super.submit(task);
     }
 
+    // 修改父类返回的future对象 增加了添加回调钩子的接口  原本future只能通过get() 阻塞等待结果
+
     /**
-     * 重写了 父类 添加任务的 方法 也就是配合 submit
      * @param runnable
      * @param value
      * @param <T>

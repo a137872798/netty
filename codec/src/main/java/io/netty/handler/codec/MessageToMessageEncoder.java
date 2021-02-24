@@ -112,6 +112,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
             if (out != null) {
                 final int sizeMinusOne = out.size() - 1;
                 if (sizeMinusOne == 0) {
+                    // 将结果传播到下层
                     ctx.write(out.getUnsafe(0), promise);
                 } else if (sizeMinusOne > 0) {
                     // Check if we can use a voidPromise for our extra writes to reduce GC-Pressure
@@ -122,6 +123,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
                         writePromiseCombiner(ctx, out, promise);
                     }
                 }
+                // 当数据被传播下去后 本list就可以被回收了
                 out.recycle();
             }
         }
@@ -136,6 +138,8 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
 
     private static void writePromiseCombiner(ChannelHandlerContext ctx, CodecOutputList out, ChannelPromise promise) {
         final PromiseCombiner combiner = new PromiseCombiner();
+
+        // 当所有子消息都被处理完后触发 promise
         for (int i = 0; i < out.size(); i++) {
             combiner.add(ctx.write(out.getUnsafe(i)));
         }

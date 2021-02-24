@@ -32,6 +32,12 @@ public class DefaultProgressivePromise<V> extends DefaultPromise<V> implements P
 
     protected DefaultProgressivePromise() { /* only for subclasses */ }
 
+    /**
+     * 每当设置一次进度就要触发一次监听器
+     * @param progress
+     * @param total
+     * @return
+     */
     @Override
     public ProgressivePromise<V> setProgress(long progress, long total) {
         if (total < 0) {

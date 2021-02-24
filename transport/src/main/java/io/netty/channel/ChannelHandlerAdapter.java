@@ -55,7 +55,7 @@ public abstract class ChannelHandlerAdapter implements ChannelHandler {
          * See <a href="https://github.com/netty/netty/issues/2289">#2289</a>.
          */
         Class<?> clazz = getClass();
-        //在每个线程中 都 将 该handler 是否是可共享的 给保存起来了
+        // 在每个线程中都缓存了某个class是否是共享的
         Map<Class<?>, Boolean> cache = InternalThreadLocalMap.get().handlerSharableCache();
         Boolean sharable = cache.get(clazz);
         if (sharable == null) {

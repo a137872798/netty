@@ -33,9 +33,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Single-thread singleton {@link EventExecutor}.  It starts the thread automatically and stops it when there is no
  * task pending in the task queue for 1 second.  Please note it is not scalable to schedule large number of tasks to
  * this executor; use a dedicated executor.
- *
- * 一个全局的 事件执行器 不同于 eventLoop的实现 直接存放了 任务队列以及定时任务队列 因为Eventloop 必须于channel 绑定才能使用
- * 某些不属于 channel的 任务全部丢到了这里 并且是一个单例对象
+ * 父类只是定义了事件处理器的模板 执行任务的逻辑还没有实现 (execute())
+ * 一个全局的事件循环组,采用单例模式
  */
 public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
 
@@ -61,14 +60,12 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
     final ThreadFactory threadFactory =
             new DefaultThreadFactory(DefaultThreadFactory.toPoolName(getClass()), false, Thread.NORM_PRIORITY, null);
     private final TaskRunner taskRunner = new TaskRunner();
-    /**
-     * 简化启动参数 不向eventloop
-     */
+
     private final AtomicBoolean started = new AtomicBoolean();
     volatile Thread thread;
 
     /**
-     * 设置一个 失败对象
+     * 这个全局事件循环对象是不可以被关闭的  当执行shutdown 会返回一个future
      */
     private final Future<?> terminationFuture = new FailedFuture<Object>(this, new UnsupportedOperationException());
 
@@ -86,11 +83,11 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
     Runnable takeTask() {
         BlockingQueue<Runnable> taskQueue = this.taskQueue;
         for (;;) {
+            // 除了要执行普通任务外 还尝试从定时任务队列中获取任务
             ScheduledFutureTask<?> scheduledTask = peekScheduledTask();
             if (scheduledTask == null) {
                 Runnable task = null;
                 try {
-                    //如果没有 定时任务 就从阻塞任务中拉取
                     task = taskQueue.take();
                 } catch (InterruptedException e) {
                     // Ignore
@@ -109,14 +106,12 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
                         return null;
                     }
                 } else {
-                    //直接拉取任务 看来普通队列的优先级比定时队列要高
                     task = taskQueue.poll();
                 }
 
+                // 在普通的任务队列中阻塞了一定时间后 应当有任务已经准备完成
                 if (task == null) {
-                    //从任务队列 移动到 普通队列
                     fetchFromScheduledTaskQueue();
-                    //取出存入的定时任务
                     task = taskQueue.poll();
                 }
 
@@ -239,12 +234,11 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
     }
 
     /**
-     * 尝试启动独占线程  每次重启都换了一个独占线程
+     * 首次从外部设置任务 会激活线程
      */
     private void startThread() {
         //已经启动就不用处理
         if (started.compareAndSet(false, true)) {
-            //创建线程的时候 设置了 taskRunner 也就是 start 的逻辑
             final Thread t = threadFactory.newThread(taskRunner);
             // Set to null to ensure we not create classloader leaks by holds a strong reference to the inherited
             // classloader.
@@ -269,7 +263,7 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
     }
 
     /**
-     * 独占线程中执行的逻辑  模板类似于 eventLoop  停止线程应该是避免无畏的 资源损耗 毕竟一直在 自旋
+     * 定义了事件循环的模板 当某个线程执行该任务时 就会不断的循环获取任务并处理
      */
     final class TaskRunner implements Runnable {
         @Override
@@ -284,7 +278,7 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
                         logger.warn("Unexpected exception from the global event executor: ", t);
                     }
 
-                    //如果是空任务就跳过 这个任务是 为了什么
+                    // 插入这个特殊的任务是为了 至少能够每隔1秒检测一次普通任务队列 因为队列会等待下一个任务的时间
                     if (task != quietPeriodTask) {
                         continue;
                     }
@@ -292,7 +286,7 @@ public final class GlobalEventExecutor extends AbstractScheduledEventExecutor {
 
                 Queue<ScheduledFutureTask<?>> scheduledTaskQueue = GlobalEventExecutor.this.scheduledTaskQueue;
                 // Terminate if there is no task in the queue (except the noop task).
-                //这个 size = 1 就是 quietPeriodTask 任务
+                // 每当任务执行完后 本对象循环会结束 进而回收线程 当插入新任务时 又会分配新的线程
                 if (taskQueue.isEmpty() && (scheduledTaskQueue == null || scheduledTaskQueue.size() == 1)) {
                     // Mark the current thread as stopped.
                     // The following CAS must always success and must be uncontended,

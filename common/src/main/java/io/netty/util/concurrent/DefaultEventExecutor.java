@@ -22,7 +22,6 @@ import java.util.concurrent.ThreadFactory;
  * Default {@link SingleThreadEventExecutor} implementation which just execute all submitted task in a
  * serial fashion.
  *
- * 这个应该是 能够设置到AbstractChannelHandlerContext.execute 的线程池对象
  */
 public final class DefaultEventExecutor extends SingleThreadEventExecutor {
 
@@ -38,6 +37,10 @@ public final class DefaultEventExecutor extends SingleThreadEventExecutor {
         this(null, executor);
     }
 
+    /**
+     * 指定了线程工厂 产生的线程用于事件循环 且是netty优化过的
+     * @param parent
+     */
     public DefaultEventExecutor(EventExecutorGroup parent) {
         this(parent, new DefaultThreadFactory(DefaultEventExecutor.class));
     }
@@ -60,15 +63,20 @@ public final class DefaultEventExecutor extends SingleThreadEventExecutor {
         super(parent, executor, true, maxPendingTasks, rejectedExecutionHandler);
     }
 
+    /**
+     * 事件循环逻辑
+     */
     @Override
     protected void run() {
         for (;;) {
+            // 从普通任务队列 或者定时任务队列中获取任务
             Runnable task = takeTask();
             if (task != null) {
                 task.run();
                 updateLastExecutionTime();
             }
 
+            // 每执行一个任务前就要检测是否收到优雅关闭请求
             if (confirmShutdown()) {
                 break;
             }

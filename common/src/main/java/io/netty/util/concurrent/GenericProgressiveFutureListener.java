@@ -16,6 +16,10 @@
 
 package io.netty.util.concurrent;
 
+/**
+ * 在完成了多少进度时 也可以触发监听器
+ * @param <F>
+ */
 public interface GenericProgressiveFutureListener<F extends ProgressiveFuture<?>> extends GenericFutureListener<F> {
     /**
      * Invoked when the operation has progressed.

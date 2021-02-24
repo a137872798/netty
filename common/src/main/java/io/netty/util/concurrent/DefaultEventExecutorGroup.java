@@ -21,6 +21,7 @@ import java.util.concurrent.ThreadFactory;
 /**
  * Default implementation of {@link MultithreadEventExecutorGroup} which will use {@link DefaultEventExecutor} instances
  * to handle the tasks.
+ * 该执行者组 生成的执行器就是 DefaultEventExecutor 事件循环逻辑就是检测任务队列中的任务并执行
  */
 public class DefaultEventExecutorGroup extends MultithreadEventExecutorGroup {
     /**

@@ -65,8 +65,7 @@ public abstract class TypeParameterMatcher {
     }
 
     /**
-     * 从缓存中尝试获取指定类型的 Type匹配器对象
-     * 应该是一个二级缓存 第一级使用对象类型 第二级使用指定的 泛型名 例如 I 找到对应的 匹配对象
+     * 这个是针对泛型参数进行类型匹配的
      * @param object 传入需要被匹配的目标对象
      * @param parametrizedSuperclass 需要 获取泛型类型的 目标类
      * @param typeParamName  这个是 handler 的 泛型参数类型  比如 I K V 这种
@@ -80,14 +79,13 @@ public abstract class TypeParameterMatcher {
         //获取传入对象的类型
         final Class<?> thisClass = object.getClass();
 
-        //从缓存中获取 该对象的 容器  也就是这个map 已经对应到某个类了 然后如果类是 有多个泛型参数的 比如 <K,V> 在存放2次
+        // 初始化用于匹配泛型参数类型的map
         Map<String, TypeParameterMatcher> map = findCache.get(thisClass);
         if (map == null) {
             map = new HashMap<String, TypeParameterMatcher>();
             findCache.put(thisClass, map);
         }
 
-        //通过 typeParamName 作为 二级key 获取匹配器对象
         TypeParameterMatcher matcher = map.get(typeParamName);
         if (matcher == null) {
             //find0 确认到 泛型的实际类型

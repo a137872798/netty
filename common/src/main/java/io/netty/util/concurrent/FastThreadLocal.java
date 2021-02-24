@@ -41,14 +41,10 @@ import java.util.Set;
  * @param <V> the type of the thread-local variable
  * @see ThreadLocal
  *
- * 保存本地线程变量
+ * 优化了jdk原生的本地线程变量
  */
 public class FastThreadLocal<V> {
 
-    /**
-     * 这个 下标 应该是有特定用途的 通过这个下标 可以访问到每个FastThreadLocal 对象 (一个 set<FastThreadLocal>对象)
-     * 这样才能保证 不同线程 对应的  threadMap 对象的 相同下标(1) 保存了本线程 稍后需要移除的 所有 本地线程变量
-     */
     private static final int variablesToRemoveIndex = InternalThreadLocalMap.nextVariableIndex();
 
     /**
@@ -56,7 +52,7 @@ public class FastThreadLocal<V> {
      * are in a container environment, and you don't want to leave the thread local variables in the threads you do not
      * manage.
      *
-     * 这里 直接 移除 特殊标识下面的 value就能移除 本线程的全部本地线程变量了
+     * 当本线程任务执行完毕后 就可以清理所有私有变量了
      */
     public static void removeAll() {
         //获取本线程 对应的容器对象
@@ -66,9 +62,11 @@ public class FastThreadLocal<V> {
         }
 
         try {
+            // 代表从0开始清理数据
             Object v = threadLocalMap.indexedVariable(variablesToRemoveIndex);
+            // 代表在这个位置设置了数据
             if (v != null && v != InternalThreadLocalMap.UNSET) {
-                //设置了 就代表 存在需要移除的对象
+                // 在第一个slot中插入的是哨兵对象 相当于是一个位图
                 @SuppressWarnings("unchecked")
                 Set<FastThreadLocal<?>> variablesToRemove = (Set<FastThreadLocal<?>>) v;
                 FastThreadLocal<?>[] variablesToRemoveArray =
@@ -79,7 +77,7 @@ public class FastThreadLocal<V> {
                 }
             }
         } finally {
-            //将该线程的 map 对象释放(每个线程有 该map 的引用)
+            // 将map字段置空
             InternalThreadLocalMap.remove();
         }
     }
@@ -109,31 +107,28 @@ public class FastThreadLocal<V> {
     }
 
     /**
-     * 成功 set() 元素 替换了 UnSet 后 触发
+     * 标记某个槽被使用 便于清理时快速定位到要处理的槽
      * @param threadLocalMap
      * @param variable
      */
     @SuppressWarnings("unchecked")
     private static void addToVariablesToRemove(InternalThreadLocalMap threadLocalMap, FastThreadLocal<?> variable) {
-        //获得 该线程对应的map 特殊下标的 value
+        //哨兵对象所在的槽
         Object v = threadLocalMap.indexedVariable(variablesToRemoveIndex);
         Set<FastThreadLocal<?>> variablesToRemove;
-        //如果该v 没有设置
+        // 初始化哨兵对象
         if (v == InternalThreadLocalMap.UNSET || v == null) {
-            //创建 一个 Set<FastThreadLocal<?>>  对象 并设置到 特殊标识对应的value 上
             variablesToRemove = Collections.newSetFromMap(new IdentityHashMap<FastThreadLocal<?>, Boolean>());
             threadLocalMap.setIndexedVariable(variablesToRemoveIndex, variablesToRemove);
         } else {
-            //否则使用获取到的 值
             variablesToRemove = (Set<FastThreadLocal<?>>) v;
         }
 
-        //将 该FastThreadLocal 记录到 特殊标识 对应的set 中 这个应该是在什么时候进行移除
         variablesToRemove.add(variable);
     }
 
     /**
-     * 当某个元素 被移除后 将该本地线程变量从待移除的中删掉 注意个FastThreadLocal 只能保存一个对象
+     * 从哨兵中移除变量
      */
     private static void removeFromVariablesToRemove(
             InternalThreadLocalMap threadLocalMap, FastThreadLocal<?> variable) {
@@ -150,7 +145,7 @@ public class FastThreadLocal<V> {
     }
 
     /**
-     * 这个是 每个 FastThreadLocal 的下标 针对不同线程生成的 FastThreadLocal 也都是不重复的
+     * 每个线程私有变量在创建时 会在本线程对应的InternalThreadLocalMap中被分配一个下标
      */
     private final int index;
 
@@ -166,15 +161,16 @@ public class FastThreadLocal<V> {
     @SuppressWarnings("unchecked")
     public final V get() {
         InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
+        // 检测下标对应的位置是否已经设置了数据
         Object v = threadLocalMap.indexedVariable(index);
         //存在值 直接返回
         if (v != InternalThreadLocalMap.UNSET) {
             return (V) v;
         }
 
-        //初始化
+        //初始化 同时会在哨兵对象中设置
         V value = initialize(threadLocalMap);
-        //注册清理
+        //在map级别的清理位图中做标记
         registerCleaner(threadLocalMap);
         return value;
     }
@@ -185,12 +181,12 @@ public class FastThreadLocal<V> {
      */
     private void registerCleaner(final InternalThreadLocalMap threadLocalMap) {
         Thread current = Thread.currentThread();
-        //已经设置了 清理标识
+        // 如果本线程设置的runnbale 已经被包装过 也就是在执行完后会自动清理线程私有变量 或者已经在map级别设置了清理标识 就不需要处理
         if (FastThreadLocalThread.willCleanupFastThreadLocals(current) || threadLocalMap.isCleanerFlagSet(index)) {
             return;
         }
 
-        //设置清理标识
+        // 在map级别设置清理标识
         threadLocalMap.setCleanerFlag(index);
 
         // TODO: We need to find a better way to handle this.
@@ -237,7 +233,7 @@ public class FastThreadLocal<V> {
         }
 
         threadLocalMap.setIndexedVariable(index, v);
-        //添加了 就添加到准备移除的 set 中
+        // 本线程对应私有变量map在这个槽中设置了变量 就要打上一个待移除标记 这样当线程要被回收时 就要做清理工作
         addToVariablesToRemove(threadLocalMap, this);
         return v;
     }
@@ -247,7 +243,6 @@ public class FastThreadLocal<V> {
      * 将属性保存到 本地线程变量
      */
     public final void set(V value) {
-        //如果不是空对象 才有设置的必要
         if (value != InternalThreadLocalMap.UNSET) {
             //获取 本线程的 本地变量 map
             InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
@@ -278,8 +273,7 @@ public class FastThreadLocal<V> {
      * 为指定容器设置value
      */
     private boolean setKnownNotUnset(InternalThreadLocalMap threadLocalMap, V value) {
-        //这个index 就是 该线程中 的 该FastThreadLocal 对象 (一个线程中可以有多个该对象)
-        //如果 该 map 原先有数据 覆盖了是 返回false的
+
         if (threadLocalMap.setIndexedVariable(index, value)) {
 
             addToVariablesToRemove(threadLocalMap, this);
@@ -304,6 +298,7 @@ public class FastThreadLocal<V> {
     }
     /**
      * Sets the value to uninitialized; a proceeding call to get() will trigger a call to initialValue().
+     * 将私有变量从map中移除
      */
     public final void remove() {
         remove(InternalThreadLocalMap.getIfSet());
@@ -313,8 +308,7 @@ public class FastThreadLocal<V> {
      * Sets the value to uninitialized for the specified thread local map;
      * a proceeding call to get() will trigger a call to initialValue().
      * The specified thread local map must be for the current thread.
-     *
-     * 将本线程局部变量对象 从 该线程 关联的 map 中移除
+     * 将线程私有变量从本线程关联的map中移除
      */
     @SuppressWarnings("unchecked")
     public final void remove(InternalThreadLocalMap threadLocalMap) {
@@ -324,13 +318,13 @@ public class FastThreadLocal<V> {
 
         //重置成 unset
         Object v = threadLocalMap.removeIndexedVariable(index);
-        //从待移除的 set 中移除 该对象
+        //从哨兵中移除该私有变量
         removeFromVariablesToRemove(threadLocalMap, this);
 
         //代表原来不是 Unset
         if (v != InternalThreadLocalMap.UNSET) {
             try {
-                //这里是个钩子 方便 被移除的 V 做释放工作
+                // 当对象被释放后 可能要做一些清理操作
                 onRemoval((V) v);
             } catch (Exception e) {
                 PlatformDependent.throwException(e);

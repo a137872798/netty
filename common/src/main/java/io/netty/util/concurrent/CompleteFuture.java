@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * A skeletal {@link Future} implementation which represents a {@link Future} which has been completed already.
- * 这里涉及到 完成任务
+ * 代表一个已经完成了任务的监听器  往该对象上设置监听器会直接触发结果
  */
 public abstract class CompleteFuture<V> extends AbstractFuture<V> {
 

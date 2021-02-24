@@ -35,6 +35,10 @@ public final class PromiseCombiner {
     private boolean doneAdding;
     private Promise<Void> aggregatePromise;
     private Throwable cause;
+
+    /**
+     * 每当某个future返回结果时增加计数值 当doneCount == expectedCount时 触发回调
+     */
     private final GenericFutureListener<Future<?>> listener = new GenericFutureListener<Future<?>>() {
         @Override
         public void operationComplete(Future<?> future) throws Exception {

@@ -27,17 +27,14 @@ import static io.netty.util.internal.PriorityQueueNode.INDEX_NOT_IN_QUEUE;
  * A priority queue which uses natural ordering of elements. Elements are also required to be of type
  * {@link PriorityQueueNode} for the purpose of maintaining the index in the priority queue.
  * @param <T> The object that is maintained in the queue.
- *
- * netty自己封装的 优先队列 应该是为了能 使用PriorityIndex
+ * 就是基于二叉堆实现的优先队列
  */
 public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends AbstractQueue<T>
                                                                      implements PriorityQueue<T> {
 
     private static final PriorityQueueNode[] EMPTY_ARRAY = new PriorityQueueNode[0];
     private final Comparator<T> comparator;
-    /**
-     * 没有用二叉堆实现优先队列吗  好像之前有个版本是二叉堆的 时间复杂度 不是 二叉堆有优势吗  应该是 自己完成封装了一个二叉堆
-     */
+
     private T[] queue;
     private int size;
 
@@ -82,7 +79,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
         for (int i = 0; i < size; ++i) {
             T node = queue[i];
             if (node != null) {
-                //清除 该节点 对于该优先队列的下标
+                //将该节点在优先队列中的下标更新成-1 代表已经被移出队列
                 node.priorityQueueIndex(this, INDEX_NOT_IN_QUEUE);
                 queue[i] = null;
             }
@@ -102,6 +99,7 @@ public final class DefaultPriorityQueue<T extends PriorityQueueNode> extends Abs
      */
     @Override
     public boolean offer(T e) {
+        // 代表之前已经被移出过队列的元素 不应该继续插入
         if (e.priorityQueueIndex(this) != INDEX_NOT_IN_QUEUE) {
             throw new IllegalArgumentException("e.priorityQueueIndex(): " + e.priorityQueueIndex(this) +
                     " (expected: " + INDEX_NOT_IN_QUEUE + ") + e: " + e);

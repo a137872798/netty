@@ -36,6 +36,10 @@ public class FastThreadLocalThread extends Thread {
         cleanupFastThreadLocals = false;
     }
 
+    /**
+     * 只要设置了runnable 就有可能在runnable中产生了线程私有变量  就需要在线程释放时销毁这些变量
+     * @param target
+     */
     public FastThreadLocalThread(Runnable target) {
         super(FastThreadLocalRunnable.wrap(target));
         //初始化的同时就修改成true
@@ -90,8 +94,7 @@ public class FastThreadLocalThread extends Thread {
 
     /**
      * Returns {@code true} if {@link FastThreadLocal#removeAll()} will be called once {@link #run()} completes.
-     *
-     * 是否会自动清理
+     * 是否需要移除线程私有变量
      */
     @UnstableApi
     public boolean willCleanupFastThreadLocals() {

@@ -55,6 +55,9 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         void recycle(CodecOutputList codecOutputList);
     }
 
+    /**
+     * 应该是考虑到单个线程可能会需要多个CodecOutputList
+     */
     private static final class CodecOutputLists implements CodecOutputListRecycler {
         //代表 可缓存的 List 对象
         private final CodecOutputList[] elements;
@@ -63,6 +66,10 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         private int currentIdx;
         private int count;
 
+        /**
+         * 初始化时 内部有16个CodecOutputList
+         * @param numElements
+         */
         CodecOutputLists(int numElements) {
             //初始化  长度 向上取2的幂次
             elements = new CodecOutputList[MathUtil.safeFindNextPositivePowerOfTwo(numElements)];
@@ -79,20 +86,18 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
         }
 
         /**
-         * 如果
          * @return
          */
         public CodecOutputList getOrCreate() {
-            //从这个 Lists 中获取List 对象 如果数组为空创建一个新对象
+            // 超量不会被缓存
             if (count == 0) {
                 // Return a new CodecOutputList which will not be cached. We use a size of 4 to keep the overhead
                 // low.
                 return new CodecOutputList(NOOP_RECYCLER, 4);
             }
-            //这个count 好像对应了currentIdx  其实List 对象并没有减少
             --count;
 
-            //获取下标
+            // 返回某个list
             int idx = (currentIdx - 1) & mask;
             CodecOutputList list = elements[idx];
             currentIdx = idx;
@@ -124,11 +129,11 @@ final class CodecOutputList extends AbstractList<Object> implements RandomAccess
     private final CodecOutputListRecycler recycler;
     private int size;
     /**
-     * 该List 对象的本体
+     * 因为基于本地线程变量来做 所以不需要使用并发容器
      */
     private Object[] array;
     /**
-     * insert 时为 true  recycle 时 为 false
+     * 在被回收前是否有插入过数据 也就是代表是否还有数据未处理
      */
     private boolean insertSinceRecycled;
 

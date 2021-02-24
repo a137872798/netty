@@ -27,8 +27,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Abstract base class for {@link EventExecutor}s that want to support scheduling.
- *
- * netty定时任务 处理器的 骨架类
+ * 增加了定时功能
  */
 public abstract class AbstractScheduledEventExecutor extends AbstractEventExecutor {
 
@@ -79,8 +78,8 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
     /**
      * Cancel all scheduled tasks.
      *
-     * 清理所有定时任务
      * This method MUST be called only when {@link #inEventLoop()} is {@code true}.
+     * 当本执行器要被终止时 要关闭之前所有的定时任务
      */
     protected void cancelScheduledTasks() {
         assert inEventLoop();
@@ -97,7 +96,7 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
             task.cancelWithoutRemove(false);
         }
 
-        //在DefaultPriorityQueue 中就是返回0
+        // 重置优先队列下标
         scheduledTaskQueue.clearIgnoringIndexes();
     }
 
@@ -111,13 +110,12 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
     /**
      * Return the {@link Runnable} which is ready to be executed with the given {@code nanoTime}.
      * You should use {@link #nanoTime()} to retrieve the correct {@code nanoTime}.
-     *
-     * 拉取指定时间内的任务 代表该任务已经 具备启动条件
+     * 找到所有准备好的定时任务
      */
     protected final Runnable pollScheduledTask(long nanoTime) {
         assert inEventLoop();
 
-        //同样是 mqsc队列
+        // 默认情况下定时任务队列是非线程安全的
         Queue<ScheduledFutureTask<?>> scheduledTaskQueue = this.scheduledTaskQueue;
         //获取第一个元素
         ScheduledFutureTask<?> scheduledTask = scheduledTaskQueue == null ? null : scheduledTaskQueue.peek();

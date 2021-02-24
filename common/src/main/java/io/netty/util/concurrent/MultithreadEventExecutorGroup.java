@@ -27,13 +27,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Abstract base class for {@link EventExecutorGroup} implementations that handles their tasks with multiple threads at
  * the same time.
+ * 多事件循环组
  */
 public abstract class MultithreadEventExecutorGroup extends AbstractEventExecutorGroup {
 
     private final EventExecutor[] children;
     private final Set<EventExecutor> readonlyChildren;
     /**
-     * 已终结的 child 数量
+     * 某些事件循环可能已经被终止
      */
     private final AtomicInteger terminatedChildren = new AtomicInteger();
     private final Promise<?> terminationFuture = new DefaultPromise(GlobalEventExecutor.INSTANCE);
@@ -65,8 +66,6 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
     /**
      * Create a new instance.
      *
-     * 创建事件循环最终走到这里  但是现在还没有开始 启用选择器
-     * args 对象对应 selectorProvider, selectStrategyFactory, RejectedExecutionHandlers.reject()
      * @param nThreads          the number of threads that will be used by this instance.
      * @param executor          the Executor to use, or {@code null} if the default should be used.
      * @param chooserFactory    the {@link EventExecutorChooserFactory} to use.
@@ -79,7 +78,6 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         }
 
         if (executor == null) {
-            //当线程池为空时  创建一个 特殊的线程池对象 这个线程池 使用特殊的线程工厂
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
 
@@ -89,17 +87,15 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
-                //初始化 每个eventloop对象 这里为 eventLoop 创建了 selector对象 一个选择器可以对应多个channel
+                // 定义了生成的事件循环实现类
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
                 // TODO: Think about if this is a good exception type
                 throw new IllegalStateException("failed to create a child event loop", e);
             } finally {
-                //创建 eventLoop 失败
                 if (!success) {
                     for (int j = 0; j < i; j ++) {
-                        //关闭对应的 eventLoop对象 这里先不看了 在shutdown的时候 还是会进行doStartThread 并调用NioEventLoop.run()
                         children[j].shutdownGracefully();
                     }
 
@@ -120,15 +116,12 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
             }
         }
 
-        //根据剩下的 NioEventLoop 对象 生成选择器 这里根据数量 选择 一个 是 什么 轮询 还有一个是 位运算
-        //如果上面全部创建失败了 这里可能是空数组
         chooser = chooserFactory.newChooser(children);
 
-        //为每个eventLoop 设置 终止时 的监听器
+        // 当所有child都关闭时 本对象才算关闭
         final FutureListener<Object> terminationListener = new FutureListener<Object>() {
             @Override
             public void operationComplete(Future<Object> future) throws Exception {
-                //当全部child terminate 完成时 设置结果对象
                 if (terminatedChildren.incrementAndGet() == children.length) {
                     terminationFuture.setSuccess(null);
                 }
@@ -146,7 +139,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
     }
 
     /**
-     * 返回 特殊的线程工厂
+     * netty默认的线程池工厂 生成的线程是netty优化过的
      * @return
      */
     protected ThreadFactory newDefaultThreadFactory() {

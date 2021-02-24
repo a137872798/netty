@@ -19,7 +19,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadFactory;
 
 /**
- * NioEventLoop对象的 专有线程池对象
+ * 这个执行器 针对每个任务都会单独生成一个新线程
  */
 public final class ThreadPerTaskExecutor implements Executor {
     //默认生成FastThreadLocalThread

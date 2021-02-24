@@ -100,11 +100,16 @@ public final class ImmediateEventExecutor extends AbstractEventExecutor {
         return false;
     }
 
+    /**
+     * 使用本线程立即执行任务
+     * @param command
+     */
     @Override
     public void execute(Runnable command) {
         if (command == null) {
             throw new NullPointerException("command");
         }
+        // 针对单线程而言 避免递归调用
         if (!RUNNING.get()) {
             RUNNING.set(true);
             try {

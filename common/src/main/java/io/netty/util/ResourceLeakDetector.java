@@ -63,9 +63,7 @@ public class ResourceLeakDetector<T> {
      * 默认推荐每个 ResourceLeak 设置的Record 数量
      */
     private static final int TARGET_RECORDS;
-    /**
-     * 采集频率是 怎么使用???
-     */
+
     static final int SAMPLING_INTERVAL;
 
     /**

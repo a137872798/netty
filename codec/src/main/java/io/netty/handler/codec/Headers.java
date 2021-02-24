@@ -26,6 +26,7 @@ import java.util.Set;
  * @param <K> the type of the header name.
  * @param <V> the type of the header value.
  * @param <T> the type to use for return values when the intention is to return {@code this} object.
+ *           模拟了一组协议头  协议头应当由一组键值对组成
  */
 public interface Headers<K, V, T extends Headers<K, V, T>> extends Iterable<Entry<K, V>> {
     /**

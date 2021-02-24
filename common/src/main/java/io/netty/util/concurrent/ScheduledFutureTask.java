@@ -27,16 +27,14 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @SuppressWarnings("ComparableImplementedButEqualsNotOverridden")
 /**
- * 定时任务对象
+ * 定时任务对象  本身实现了优先队列节点接口
  */
 final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFuture<V>, PriorityQueueNode {
     /**
      * 为每个 任务设置唯一id
      */
     private static final AtomicLong nextTaskId = new AtomicLong();
-    /**
-     * 为什么要设置成系统的 起始时间 一个说法是 该定时是基于 时间间隔的 而不是系统时间 如果中途修改了系统时间 也是不影响
-     */
+
     private static final long START_TIME = System.nanoTime();
 
     /**
@@ -48,7 +46,6 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
     }
 
     /**
-     * 获取 最后的时间
      * @param delay
      * @return
      */
@@ -120,6 +117,11 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
         return unit.convert(delayNanos(), TimeUnit.NANOSECONDS);
     }
 
+    /**
+     * 以触发时间作为排序条件
+     * @param o
+     * @return
+     */
     @Override
     public int compareTo(Delayed o) {
         if (this == o) {
@@ -142,7 +144,7 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
     }
 
     /**
-     * 定时任务的 执行逻辑  这里代表已经到执行时间了
+     * 执行定时任务
      */
     @Override
     public void run() {
@@ -150,7 +152,7 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
         try {
             //如果是单次任务
             if (periodNanos == 0) {
-                //设置成不可中断
+                //设置成不可中断 如果设置失败 代表任务已经在之前被中断了 就不需要再执行了
                 if (setUncancellableInternal()) {
                     //执行任务并获取结果
                     V result = task.call();
@@ -159,7 +161,6 @@ final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFu
                 }
             } else {
                 // check if is done as it may was cancelled
-                //当任务 还没有被关闭  为什么这个不用设置成不可中断 可能如果要一直执行的定时任务不能灵活的取消会很麻烦
                 if (!isCancelled()) {
                     //委托执行
                     task.call();

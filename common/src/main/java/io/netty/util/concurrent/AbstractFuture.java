@@ -25,7 +25,6 @@ import java.util.concurrent.TimeoutException;
  *
  * @param <V>
  *
- *     netty future 基类实现
  */
 public abstract class AbstractFuture<V> implements Future<V> {
 
@@ -36,7 +35,7 @@ public abstract class AbstractFuture<V> implements Future<V> {
 
         Throwable cause = cause();
         if (cause == null) {
-            //代表 没有异常有结果了
+            // 本次正常产生结果
             return getNow();
         }
         if (cause instanceof CancellationException) {

@@ -32,6 +32,7 @@ public interface EventExecutor extends EventExecutorGroup {
 
     /**
      * Return the {@link EventExecutorGroup} which is the parent of this {@link EventExecutor},
+     * 当前事件循环归属于哪个组
      */
     EventExecutorGroup parent();
 

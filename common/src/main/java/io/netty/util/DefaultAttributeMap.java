@@ -22,8 +22,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 /**
  * Default {@link AttributeMap} implementation which use simple synchronization per bucket to keep the memory overhead
  * as low as possible.
- *
- * 以数组方式 实现map对象
+ * 这个容器是不支持扩容的 也就是仅支持存储少数元素
  */
 public class DefaultAttributeMap implements AttributeMap {
 
@@ -63,18 +62,23 @@ public class DefaultAttributeMap implements AttributeMap {
             DefaultAttribute<T> attr = new DefaultAttribute<T>(head, key);
             head.next = attr;
             attr.prev = head;
+            // 首次插入成功 直接返回
             if (attributes.compareAndSet(i, null, head)) {
                 // we were able to add it so return the attr right away
                 return attr;
             } else {
+                // 插入失败 代表其他线程已经竞争插入了head节点
                 head = attributes.get(i);
             }
         }
 
+        // 也是锁头节点
         synchronized (head) {
             DefaultAttribute<?> curr = head;
             for (;;) {
                 DefaultAttribute<?> next = curr.next;
+                // 代表可能所有元素都已经被移除 这次针对该slot是首次插入
+                // 也可能是上面head节点的创建竞争失败 这时重新获取这个slot下的链尾节点 并重新设置 而之前竞争失败的head节点就会自然回收
                 if (next == null) {
                     DefaultAttribute<T> attr = new DefaultAttribute<T>(head, key);
                     curr.next = attr;
@@ -82,6 +86,7 @@ public class DefaultAttributeMap implements AttributeMap {
                     return attr;
                 }
 
+                // 存在时间差 比如刚调用attr的remove函数, 然后在对head上锁之前被其他线程竞争成功
                 if (next.key == key && !next.removed) {
                     return (Attribute<T>) next;
                 }
@@ -126,6 +131,10 @@ public class DefaultAttributeMap implements AttributeMap {
         return key.id() & MASK;
     }
 
+    /**
+     * value通过AtomicReference包裹 确保线程安全  这个map也是通过数组 + 链表的方式
+     * @param <T>
+     */
     @SuppressWarnings("serial")
     private static final class DefaultAttribute<T> extends AtomicReference<T> implements Attribute<T> {
 
@@ -184,6 +193,9 @@ public class DefaultAttributeMap implements AttributeMap {
             remove0();
         }
 
+        /**
+         * 锁定header节点 从链表中移除本节点
+         */
         private void remove0() {
             synchronized (head) {
                 if (prev == null) {

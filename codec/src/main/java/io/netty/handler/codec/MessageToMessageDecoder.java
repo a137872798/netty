@@ -52,6 +52,9 @@ import java.util.List;
  */
 public abstract class MessageToMessageDecoder<I> extends ChannelInboundHandlerAdapter {
 
+    /**
+     * 这个对象就是用于判断某个实例是否是<I>类型
+     */
     private final TypeParameterMatcher matcher;
 
     /**
@@ -78,16 +81,25 @@ public abstract class MessageToMessageDecoder<I> extends ChannelInboundHandlerAd
         return matcher.match(msg);
     }
 
+    /**
+     * 当接收到消息流时 通过该对象进行处理 这是编解码的模板
+     * @param ctx
+     * @param msg
+     * @throws Exception
+     */
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         CodecOutputList out = CodecOutputList.newInstance();
         try {
+            // 只有当接收到的消息是泛型指定的类型才会处理
             if (acceptInboundMessage(msg)) {
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
                 try {
+                    // 核心的解码逻辑由子类实现 同时将结果存储到out中
                     decode(ctx, cast, out);
                 } finally {
+                    // 这里会自动尝试释放引用计数
                     ReferenceCountUtil.release(cast);
                 }
             } else {

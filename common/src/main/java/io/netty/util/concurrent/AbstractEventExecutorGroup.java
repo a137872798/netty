@@ -28,6 +28,7 @@ import static io.netty.util.concurrent.AbstractEventExecutor.*;
 
 /**
  * Abstract base class for {@link EventExecutorGroup} implementations.
+ * 这里增加了均衡负载逻辑
  */
 public abstract class AbstractEventExecutorGroup implements EventExecutorGroup {
     @Override

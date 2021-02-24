@@ -18,7 +18,7 @@ package io.netty.util.concurrent;
 import java.util.Arrays;
 
 /**
- * 监听器 数组 
+ * 代表一组监听器
  */
 final class DefaultFutureListeners {
 
