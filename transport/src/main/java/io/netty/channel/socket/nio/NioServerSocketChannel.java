@@ -210,7 +210,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     }
 
     /**
-     * server 不存在 disConnect 方法
+     * server不支持disConnect方法
      */
     @Override
     protected void doDisconnect() throws Exception {

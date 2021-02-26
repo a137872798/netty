@@ -99,12 +99,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     /**
      * Create a new instance
-     * 最后走到这
      * @param parent    the {@link Channel} which created this instance or {@code null} if it was created by the user
      * @param socket    the {@link SocketChannel} which will be used
      */
     public NioSocketChannel(Channel parent, SocketChannel socket) {
-        //客户端channel 使用 read事件进行注册  这里的 parent 在server接受到 client channel时 是 server
         super(parent, socket);
         //初始化配置信息
         config = new NioSocketChannelConfig(this, socket.socket());
@@ -331,7 +329,6 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress) throws Exception {
         if (localAddress != null) {
-            //先绑定到本地 也就是针对 Bootstrap 调用bind 没有意义 一旦调用 connect就会重新创建一个 JDK channel并在这里进行绑定
             doBind0(localAddress);
         }
 
@@ -458,21 +455,19 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
             // 将待flush 的数据转换成 nioBuffer 拿出来
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
-            // 该内存队列中 bytebuffer数组的数量
+            // 本次返回了多少buffer
             int nioBufferCnt = in.nioBufferCount();
 
             // Always us nioBuffers() to workaround data-corruption.
             // See https://github.com/netty/netty/issues/2761
             switch (nioBufferCnt) {
-                //0 只能代表超过了 maxBytesPerGatheringWrite 却不能代表所有flushed 都被写入了
+                // 代表本次将一个buffer内的数据完整的转移
                 case 0:
                     // We have something else beside ByteBuffers to write so fallback to normal writes.
-                    // 每次循环 自旋次数都会减少
-                    // 如果 flushed 的数据全部写入了 自旋次数肯定是 >=0的 就不需要设置 OP_WRITE
-                    // 一旦 JDK channel 无法写入 会返回 Integer.Max_VALUE 就会设置 OP_WRITE
+                    // 只要写入了数据就减少1 否则减少0 当网络iowrite缓冲区写满时 返回一个特殊值
                     writeSpinCount -= doWrite0(in);
                     break;
-                //还剩一个 buffer
+                    // 正好能写入一个buffer
                 case 1: {
                     // Only one ByteBuf so use non-gathering write
                     // Zero length buffers are not added to nioBuffers by ChannelOutboundBuffer, so there is no need
@@ -487,9 +482,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                         incompleteWrite(true);
                         return;
                     }
-                    //调整 好像是 OS 会自动调整 缓冲区大小 然后这个也要跟着调整 过于底层先不管
+                    // 自动调节下次尝试写入的数据量
                     adjustMaxBytesPerGatheringWrite(attemptedBytes, localWrittenBytes, maxBytesPerGatheringWrite);
-                    //移除写入的内容
+                    // 因为这部分数据已经写入 所以减少对应的bytes
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;
@@ -498,6 +493,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // Zero length buffers are not added to nioBuffers by ChannelOutboundBuffer, so there is no need
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
+                    // 直接写入一组bytebuffer
                     long attemptedBytes = in.nioBufferSize();
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
                     if (localWrittenBytes <= 0) {
@@ -526,7 +522,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     private final class NioSocketChannelUnsafe extends NioByteUnsafe {
         /**
-         * 当开始关闭 channel 时 会触发  如果没有设置 Solinger server 和 client 是一样的
+         * 当开始关闭channel时触发
          * @return
          */
         @Override
@@ -542,7 +538,6 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // because we try to read or write until the actual close happens which may be later due
                     // SO_LINGER handling.
                     // See https://github.com/netty/netty/issues/4449
-                    // 这里提前进行注销  如果不注销 那么 socket 当前是被阻塞状态是没办法处理读事件的就会不断触发
                     doDeregister();
                     return GlobalEventExecutor.INSTANCE;
                 }

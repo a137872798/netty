@@ -62,7 +62,6 @@ final class SelectedSelectionKeySetSelector extends Selector {
     }
 
     //每次选择之前自动清空之前保存的 selectionKey 对象 不然要手动删除
-
     @Override
     public int selectNow() throws IOException {
         selectionKeys.reset();

@@ -42,7 +42,6 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 /**
  * The default {@link ChannelPipeline} implementation.  It is usually created
  * by a {@link Channel} implementation when the {@link Channel} is created.
- *
  */
 public class DefaultChannelPipeline implements ChannelPipeline {
 
@@ -97,15 +96,14 @@ public class DefaultChannelPipeline implements ChannelPipeline {
      * We only keep the head because it is expected that the list is used infrequently and its size is small.
      * Thus full iterations to do insertions is assumed to be a good compromised to saving memory and tail management
      * complexity.
-     *
-     * 回调链对象  比如 handler 在 eventloop还没有绑定的时候是 不能直接添加的 就先存在在这个链中 当 register结束后 延迟 添加handler
+     * 当注册完成后触发的回调链
      */
     private PendingHandlerCallback pendingHandlerCallbackHead;
 
     /**
      * Set to {@code true} once the {@link AbstractChannel} is registered.Once set to {@code true} the value will never
      * change.
-     * 判断 该 channel 是否已经 注册到eventloop上
+     * 判断该channel是否已经注册到eventloop上
      */
     private boolean registered;
 
@@ -156,7 +154,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 生成一个新的上下文对象
+     * 从一组执行器中选择一个 绑定到context上 这样触发context的相关函数就会通过这个executor
      * @param group
      * @param name
      * @param handler
@@ -167,7 +165,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 获取 group 下对应的  该 eventloop对象
+     * 基于某种方法选择一个事件循环
      * @param group
      * @return
      */
@@ -178,9 +176,11 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         //是否每个组只有一个 eventloop
         Boolean pinEventExecutor = channel.config().getOption(ChannelOption.SINGLE_EVENTEXECUTOR_PER_GROUP);
         if (pinEventExecutor != null && !pinEventExecutor) {
-            //只返回一个 eventloop
+            // 通过负载算法选择下一个
             return group.next();
         }
+
+        // group只有一个事件循环  通过map固化映射关系
         Map<EventExecutorGroup, EventExecutor> childExecutors = this.childExecutors;
         if (childExecutors == null) {
             // Use size of 4 as most people only use one extra EventExecutor.
@@ -190,7 +190,6 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         // is used to fire events for the same channel.
         EventExecutor childExecutor = childExecutors.get(group);
         if (childExecutor == null) {
-            //这里怎么保证 这个eventloop 和 绑定在 channel 上的 那个eventloop 是一个对象呢  这个group如果是外界传进来的 那么跟channel 绑定的就没有关系了
             childExecutor = group.next();
             childExecutors.put(group, childExecutor);
         }
@@ -202,7 +201,6 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 看来这里可以为每个 handler 设置独立的 eventloop 对象 不过一般情况应该是不需要的
      * @param name     the name of the handler to insert first
      *                  默认也是null
      * @param handler  the handler to insert first
@@ -227,9 +225,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     @Override
     public final ChannelPipeline addFirst(EventExecutorGroup group, String name, ChannelHandler handler) {
         final AbstractChannelHandlerContext newCtx;
-        //使用同步块 保证 添加到 回调链的 操作 原子性 并且对象不需要 volatile 修饰
+        // 针对链表的操作需要加锁
         synchronized (this) {
-            //保证handler 只能添加一次 除非使用了Sharable注解
+            // 默认情况下一个handler 只能设置到一个context上 如果使用了@Sharable注解 就可以被各种context共享了
             checkMultiplicity(handler);
             //默认name 是null  生成handler 的唯一名字
             name = filterName(name, handler);
@@ -237,19 +235,19 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             //包装handler生成一个节点对象 group默认是null
             newCtx = newContext(group, name, handler);
 
-            //添加的真正逻辑 就是链表操作   注册完成前 pipeline 链 也已经添加完成了 只不过 这个handler 还是处于不能使用的状态 ADD_PENDING
+            //添加的真正逻辑 就是链表操作
             addFirst0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventloop yet.
             // In this case we add the context to the pipeline and add a task that will call
             // ChannelHandler.handlerAdded(...) once the channel is registered.
-            // 首次肯定是还没有完成 注册 这时对应 init(channel) 会将 channelConfig 的 handler 设置上去
+            // 当本对象还没有注册到事件循环线程上时
             if (!registered) {
                 //设置等待 猜测应该是 eventloop没设置 就不能执行一些任务了 因为 没有为每个context设置指定的 executor对象 并且设置了 只会更复杂 因为每个节点都要在不同
                 //的线程中执行
                 //提示这个节点还不能添加
                 newCtx.setAddPending();
-                //添加到回调链中 一旦 register 完成 会触发这里 将之前没有生效的 ctx 生效
+                //一旦register完成会将之前的 context状态修改成 已添加 这样就可以使用handler处理了
                 callHandlerCallbackLater(newCtx, true);
                 return this;
             }
@@ -258,9 +256,8 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             EventExecutor executor = newCtx.executor();
             //添加一般都是在外部线程的
             if (!executor.inEventLoop()) {
-                //外部线程添加 也都是 处于 addPend 状态??? 可能是多线程 添加 会出 问题吧
                 newCtx.setAddPending();
-                //这里添加到任务队列  单线程就能保证操作链表不出问题
+                // 使用业务线程执行任务
                 executor.execute(new Runnable() {
                     @Override
                     public void run() {
@@ -270,6 +267,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 return this;
             }
         }
+        // 在事件循环线程中插入handler 立即设置成add_complete
         callHandlerAdded0(newCtx);
         return this;
     }
@@ -780,7 +778,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 添加 ctx 的实际逻辑
+     * 当往pipeline增加一个ctx后
      * @param ctx
      */
     private void callHandlerAdded0(final AbstractChannelHandlerContext ctx) {
@@ -797,7 +795,6 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 //出现异常就移除该节点 这个就是链表操作
                 remove0(ctx);
                 try {
-                    //触发 移除事件  出了链表 怎么传递事件???  这个好像不能传递的 在ChannelInboundHandlerAdapter 中没有设置该事件
                     ctx.handler().handlerRemoved(ctx);
                 } finally {
                     //设置成 已remove
@@ -842,7 +839,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     /**
-     * 当 channel 被注册到select 时
+     * 当本对象绑定到事件循环组上时 执行期间插入的所有handler的 handlerAdd方法
      */
     final void invokeHandlerAddedIfNeeded() {
         //这里是委托到独占线程执行的 所以必然是true
@@ -1051,13 +1048,12 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     /**
      * Removes all handlers from the pipeline one by one from tail (exclusive) to head (exclusive) to trigger
      * handlerRemoved().
-     * 从后往前移除 挨个触发 handlerRemoved
      * Note that we traverse up the pipeline ({@link #destroyUp(AbstractChannelHandlerContext, boolean)})
      * before traversing down ({@link #destroyDown(Thread, AbstractChannelHandlerContext, boolean)}) so that
      * the handlers are removed after all events are handled.
      *
      * See: https://github.com/netty/netty/issues/3156
-     * 当 注销时
+     * 当channel从事件循环上注销时 就要清理整个pipeline
      */
     private synchronized void destroy() {
         destroyUp(head.next, false);
@@ -1573,8 +1569,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
         HeadContext(DefaultChannelPipeline pipeline) {
             super(pipeline, null, HEAD_NAME, true, true);
-            //这里返回的 时 niochannel 的  niounsafe
             unsafe = pipeline.channel().unsafe();
+
+            // 该对象在创建时 立即进入handler设置完成的状态 无法手动设置handler
             setAddComplete();
         }
 
@@ -1631,7 +1628,6 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
 
         /**
-         * 当active 触发后 自动触发读事件 这里是将 read事件注册到选择器上 而不是 读取到什么消息
          * @param ctx
          */
         @Override
@@ -1661,7 +1657,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
 
         /**
-         * 注销时触发
+         * 当关联的channel 从事件循环组上注销时 销毁pipeline
          * @param ctx
          * @throws Exception
          */
@@ -1682,7 +1678,6 @@ public class DefaultChannelPipeline implements ChannelPipeline {
          */
         @Override
         public void channelActive(ChannelHandlerContext ctx) throws Exception {
-            //传递事件  当这个调用链全部执行完后
             ctx.fireChannelActive();
 
             //如果是 自动读取状态 触发读事件 这里是触发 channel.read

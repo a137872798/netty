@@ -33,9 +33,8 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectableChannel;
-import java.nio.channels.Selector;
 import java.nio.channels.SelectionKey;
-
+import java.nio.channels.Selector;
 import java.nio.channels.spi.SelectorProvider;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -51,7 +50,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * {@link SingleThreadEventLoop} implementation which register the {@link Channel}'s to a
  * {@link Selector} and so does the multi-plexing of these in the event loop.
- *
  */
 public final class NioEventLoop extends SingleThreadEventLoop {
 
@@ -65,9 +63,6 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     private static final int MIN_PREMATURE_SELECTOR_RETURNS = 3;
     private static final int SELECTOR_AUTO_REBUILD_THRESHOLD;
 
-    /**
-     * 为什么要特地封装一个 对象   执行selectNow 这是优化版本的select对象 selectNow 会删除之前残留的 selectKey
-     */
     private final IntSupplier selectNowSupplier = new IntSupplier() {
         @Override
         public int get() throws Exception {
@@ -129,6 +124,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     private final SelectStrategy selectStrategy;
 
+    /**
+     * 默认情况下 selector阻塞时间 和处理任务队列中的时间占比是 50%
+     */
     private volatile int ioRatio = 50;
     private int cancelledKeys;
     private boolean needsToSelectAgain;
@@ -136,11 +134,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     /**
      * 通过 NioEventLoopGroup 创建该对象 也就是设置了一堆属性 最重要的是生成了一个 selector 对象 该对象还是优化过的
      *
-     * channel 中 只是创建通过provider创建了 channel 并没有创建selector
-     * @param parent NioEventLoopGroup 对象
-     * @param executor 默认为null
-     * @param selectorProvider SelectorProvider.provider()
-     * @param strategy DefaultSelectStrategyFactory.INSTANCE
+     * @param parent                   NioEventLoopGroup 对象
+     * @param executor                 默认为null
+     * @param selectorProvider         SelectorProvider.provider()
+     * @param strategy                 DefaultSelectStrategyFactory.INSTANCE
      * @param rejectedExecutionHandler RejectedExecutionHandlers.reject()
      */
     NioEventLoop(NioEventLoopGroup parent, Executor executor, SelectorProvider selectorProvider,
@@ -172,6 +169,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
         /**
          * 默认情况下 2个 都使用 未优化的selector
+         *
          * @param unwrappedSelector
          */
         SelectorTuple(Selector unwrappedSelector) {
@@ -187,6 +185,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * 选择器对象包装类
+     *
      * @return
      */
     private SelectorTuple openSelector() {
@@ -198,13 +197,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             throw new ChannelException("failed to open a new selector", e);
         }
 
-        //拒绝 什么东西 应该是 拒绝对select 做优化
         if (DISABLE_KEYSET_OPTIMIZATION) {
             //直接返回包装对象
             return new SelectorTuple(unwrappedSelector);
         }
 
-        //获取权限 现在还不懂需要在什么时候使用
         Object maybeSelectorImplClass = AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @Override
             public Object run() {
@@ -221,8 +218,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
         //获取 openJdk 的 选择器实现对象
         if (!(maybeSelectorImplClass instanceof Class) ||
-            // ensure the current selector implementation is what we can instrument.
-            !((Class<?>) maybeSelectorImplClass).isAssignableFrom(unwrappedSelector.getClass())) {
+                // ensure the current selector implementation is what we can instrument.
+                !((Class<?>) maybeSelectorImplClass).isAssignableFrom(unwrappedSelector.getClass())) {
             if (maybeSelectorImplClass instanceof Throwable) {
                 Throwable t = (Throwable) maybeSelectorImplClass;
                 logger.trace("failed to instrument a special java.util.Set into: {}", unwrappedSelector, t);
@@ -298,7 +295,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         //2.每次 重新选择前 都会清空之前保存的 selectionKey
         //unwrap 就是 每次select 不会清空之前保存的 key
         return new SelectorTuple(unwrappedSelector,
-                                 new SelectedSelectionKeySetSelector(unwrappedSelector, selectedKeySet));
+                new SelectedSelectionKeySetSelector(unwrappedSelector, selectedKeySet));
     }
 
     /**
@@ -312,7 +309,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     protected Queue<Runnable> newTaskQueue(int maxPendingTasks) {
         // This event loop never calls takeTask()
         return maxPendingTasks == Integer.MAX_VALUE ? PlatformDependent.<Runnable>newMpscQueue()
-                                                    : PlatformDependent.<Runnable>newMpscQueue(maxPendingTasks);
+                : PlatformDependent.<Runnable>newMpscQueue(maxPendingTasks);
     }
 
     /**
@@ -345,6 +342,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             try {
                 // Offload to the EventLoop as otherwise java.nio.channels.spi.AbstractSelectableChannel.register
                 // may block for a long time while trying to obtain an internal lock that may be hold while selecting.
+                // 将注册任务提交到事件循环线程 并等待结果 (submit转发到execute)
                 submit(new Runnable() {
                     @Override
                     public void run() {
@@ -387,11 +385,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     /**
      * Replaces the current {@link Selector} of this event loop with newly created {@link Selector}s to work
      * around the infamous epoll 100% CPU bug.
-     *
-     * 该方法是 对外开放的 可以直接用外部线程调用
      */
     public void rebuildSelector() {
-        //外部线程加入到任务队列 核心逻辑 就是 addTask(task)
+        // 外部线程调用方法时 就是将逻辑包装成任务设置到时间循环线程的队列 并等待事件循环线程执行
         if (!inEventLoop()) {
             execute(new Runnable() {
                 @Override
@@ -426,7 +422,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
         // Register all channels to the new Selector.
         int nChannels = 0;
-        for (SelectionKey key: oldSelector.keys()) {
+        for (SelectionKey key : oldSelector.keys()) {
             Object a = key.attachment();
             try {
                 if (!key.isValid() || key.channel().keyFor(newSelectorTuple.unwrappedSelector) != null) {
@@ -440,7 +436,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     // Update SelectionKey
                     ((AbstractNioChannel) a).selectionKey = newKey;
                 }
-                nChannels ++;
+                nChannels++;
             } catch (Exception e) {
                 logger.warn("Failed to re-register a Channel to the new Selector.", e);
                 if (a instanceof AbstractNioChannel) {
@@ -473,68 +469,62 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     /**
-     * 就是在 开始事件循环后 通过专有线程转发调用到这里执行任务
-     * 当 将eventLoop 注册到channel 上就是在 任务队列中加入任务 执行register0 就是将 channel注册到eventLoop 的select上
+     * 监听selector以及执行任务队列中的任务
      */
     @Override
     protected void run() {
-        for (;;) {
+        for (; ; ) {
             try {
                 try {
                     //hasTasks 是 判断当前任务队列中是否还有任务 selectStrategy可以判断是执行 队列任务 还是select
                     switch (selectStrategy.calculateStrategy(selectNowSupplier, hasTasks())) {
-                        //怎么得到-2???
-                    case SelectStrategy.CONTINUE:
-                        continue;
+                        // 默认策略不会返回该枚举
+                        case SelectStrategy.CONTINUE:
+                            continue;
+                        case SelectStrategy.BUSY_WAIT:
+                            // fall-through to SELECT since the busy-wait is not supported with NIO
+                            // 当前任务队列中还未设置任务
+                        case SelectStrategy.SELECT:
+                            //获取当前wakeup状态后 开始选择  如果之前就是true 也会select一次 但由于多执行一次 wakeup 所以 select会立即结束然后处理任务队列中的任务
+                            select(wakenUp.getAndSet(false));
 
-                        //哪来的-3??? 不是只能返回 正数和 SELECT 吗  return hasTasks ? selectSupplier.get() : SelectStrategy.SELECT;
-                    case SelectStrategy.BUSY_WAIT:
-                        // fall-through to SELECT since the busy-wait is not supported with NIO
-
-                    case SelectStrategy.SELECT:
-                        //获取当前wakeup状态后 开始选择  如果之前就是true 也会select一次 但由于多执行一次 wakeup 所以 select会立即结束然后处理任务队列中的任务
-                        select(wakenUp.getAndSet(false));
-
-                        // 'wakenUp.compareAndSet(false, true)' is always evaluated
-                        // before calling 'selector.wakeup()' to reduce the wake-up
-                        // overhead. (Selector.wakeup() is an expensive operation.)
-                        //
-                        // 这里会存在某种情况导致 wakeup 过早的被设置为true
-                        // However, there is a race condition in this approach.
-                        // The race condition is triggered when 'wakenUp' is set to
-                        // true too early.
-                        //
-                        // 'wakenUp' is set to true too early if:
-                        // 第一种情况是指 wakenUp.getAndSet(false) 时 处于true 也就会 多执行一次 wakeup
-                        // 1) Selector is waken up between 'wakenUp.set(false)' and
-                        //    'selector.select(...)'. (BAD)
-                        // 第二种情况是可以接受的就是在选择完之后才设置成true
-                        // 2) Selector is waken up between 'selector.select(...)' and
-                        //    'if (wakenUp.get()) { ... }'. (OK)
-                        //
-                        // In the first case, 'wakenUp' is set to true and the
-                        // following 'selector.select(...)' will wake up immediately.
-                        // 如果在外面 wakeup 被修改成true 了 那么即使当前有任务 也无法直接跳出来
-                        // Until 'wakenUp' is set to false again in the next round,
-                        // 'wakenUp.compareAndSet(false, true)' will fail, and therefore
-                        // any attempt to wake up the Selector will fail, too, causing
-                        // the following 'selector.select(...)' call to block
-                        // unnecessarily.
-                        //
-                        // 解决方法是 在进行一次 select.wakeup 这样在 select 就会立即返回
-                        // To fix this problem, we wake up the selector again if wakenUp
-                        // is true immediately after selector.select(...).
-                        // It is inefficient in that it wakes up the selector for both
-                        // the first case (BAD - wake-up required) and the second case
-                        // (OK - no wake-up required).
-
-
-                        //简言之这个处理就是为了 当 任务队列中有任务的时候 不会因为select进行无意义的阻塞
-                        if (wakenUp.get()) {
-                            selector.wakeup();
-                        }
-                        // fall through
-                    default:
+                            // 'wakenUp.compareAndSet(false, true)' is always evaluated
+                            // before calling 'selector.wakeup()' to reduce the wake-up
+                            // overhead. (Selector.wakeup() is an expensive operation.)
+                            //
+                            // 这里会存在某种情况导致 wakeup 过早的被设置为true
+                            // However, there is a race condition in this approach.
+                            // The race condition is triggered when 'wakenUp' is set to
+                            // true too early.
+                            //
+                            // 'wakenUp' is set to true too early if:
+                            // 第一种情况是指 wakenUp.getAndSet(false) 时 处于true 也就会 多执行一次 wakeup
+                            // 1) Selector is waken up between 'wakenUp.set(false)' and
+                            //    'selector.select(...)'. (BAD)
+                            // 第二种情况是可以接受的就是在选择完之后才设置成true
+                            // 2) Selector is waken up between 'selector.select(...)' and
+                            //    'if (wakenUp.get()) { ... }'. (OK)
+                            //
+                            // In the first case, 'wakenUp' is set to true and the
+                            // following 'selector.select(...)' will wake up immediately.
+                            // 如果在外面 wakeup 被修改成true 了 那么即使当前有任务 也无法直接跳出来
+                            // Until 'wakenUp' is set to false again in the next round,
+                            // 'wakenUp.compareAndSet(false, true)' will fail, and therefore
+                            // any attempt to wake up the Selector will fail, too, causing
+                            // the following 'selector.select(...)' call to block
+                            // unnecessarily.
+                            //
+                            // 解决方法是 在进行一次 select.wakeup 这样在 select 就会立即返回
+                            // To fix this problem, we wake up the selector again if wakenUp
+                            // is true immediately after selector.select(...).
+                            // It is inefficient in that it wakes up the selector for both
+                            // the first case (BAD - wake-up required) and the second case
+                            // (OK - no wake-up required).
+                            if (wakenUp.get()) {
+                                selector.wakeup();
+                            }
+                            // fall through
+                        default:
                     }
                 } catch (IOException e) {
                     // If we receive an IOException here its because the Selector is messed up. Let's rebuild
@@ -547,7 +537,6 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 }
 
                 cancelledKeys = 0;
-                //设置成 不需要重选 代表现在的 事件全部是有效的 之后如果某个channel 被关闭之类的 会设置这个标识 代表 选择到的 事件中可能有无效的
                 needsToSelectAgain = false;
                 final int ioRatio = this.ioRatio;
                 if (ioRatio == 100) {
@@ -629,16 +618,16 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     /**
-     * 在 某个 selectionKey 被关闭时 要设置 needsToSelectAgain 代表这个无效了
+     * 当key被关闭时 尝试更新准备好的key
+     *
      * @param key
      */
     void cancel(SelectionKey key) {
         //当 感兴趣的事件取消后 该 key 也可以被关闭了
         key.cancel();
-        cancelledKeys ++;
+        cancelledKeys++;
         if (cancelledKeys >= CLEANUP_INTERVAL) {
             cancelledKeys = 0;
-            //超过256才开始重选???
             needsToSelectAgain = true;
         }
     }
@@ -654,6 +643,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * 处理未优化的版本
+     *
      * @param selectedKeys
      */
     private void processSelectedKeysPlain(Set<SelectionKey> selectedKeys) {
@@ -666,7 +656,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
         //逻辑基本一致 只是通过迭代器获取了
         Iterator<SelectionKey> i = selectedKeys.iterator();
-        for (;;) {
+        for (; ; ) {
             final SelectionKey k = i.next();
             final Object a = k.attachment();
             i.remove();
@@ -733,6 +723,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * 根据 selectKey 已经 生成 该 对象的 channel 来分发事件
+     *
      * @param k
      * @param ch
      */
@@ -775,7 +766,6 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 ops &= ~SelectionKey.OP_CONNECT;
                 k.interestOps(ops);
 
-                //处理连接事件 这样会触发 beginread 也就是为selectKey 增加 读时间 并且将 channelInitialize 的handler 取出来
                 unsafe.finishConnect();
             }
 
@@ -792,7 +782,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // Also check for readOps of 0 to workaround possible JDK bug which may otherwise lead
             // to a spin loop
             // 先尝试 读取 而read 注册是在 active 首次触发 beginRead中添加的
-            //这里的 client 就是read  server 就是OP_ACCEPT
+            // 这里的 client 就是read  server 就是OP_ACCEPT
+            // readyOps == 0 应该是某种异常情况
             if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
                 unsafe.read();
             }
@@ -812,30 +803,29 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             state = 2;
         } finally {
             switch (state) {
-            case 0:
-                k.cancel();
-                invokeChannelUnregistered(task, k, null);
-                break;
-            case 1:
-                if (!k.isValid()) { // Cancelled by channelReady()
+                case 0:
+                    k.cancel();
                     invokeChannelUnregistered(task, k, null);
-                }
-                break;
+                    break;
+                case 1:
+                    if (!k.isValid()) { // Cancelled by channelReady()
+                        invokeChannelUnregistered(task, k, null);
+                    }
+                    break;
             }
         }
     }
 
     /**
-     * 当终止时触发
+     * 当终止时触发 关闭所有注册的channel
      */
     private void closeAll() {
-        //在进行一次selectNow 应该是清除当前准备好的事件  如果这时候刚好有新的准备事件会怎样???
         selectAgain();
         //这里获取所有的 key  注意不是 准备好的 key
         Set<SelectionKey> keys = selector.keys();
         //将selectionKey 上的 channel 保存下来
         Collection<AbstractNioChannel> channels = new ArrayList<AbstractNioChannel>(keys.size());
-        for (SelectionKey k: keys) {
+        for (SelectionKey k : keys) {
             Object a = k.attachment();
             if (a instanceof AbstractNioChannel) {
                 channels.add((AbstractNioChannel) a);
@@ -848,7 +838,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         //关闭channel
-        for (AbstractNioChannel ch: channels) {
+        for (AbstractNioChannel ch : channels) {
             ch.unsafe().close(ch.unsafe().voidPromise());
         }
     }
@@ -861,6 +851,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 只应该由外部线程唤醒选择器
+     * 每当插入新的任务时 尝试唤醒选择器
+     * @param inEventLoop
+     */
     @Override
     protected void wakeup(boolean inEventLoop) {
         if (!inEventLoop && wakenUp.compareAndSet(false, true)) {
@@ -887,7 +882,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * 使用selector 开始 等待准备好的事件 就是NIO 操作
-     * @param oldWakenUp
+     *
+     * @param oldWakenUp 之前wakeup的状态
      * @throws IOException
      */
     private void select(boolean oldWakenUp) throws IOException {
@@ -897,7 +893,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             long currentTimeNanos = System.nanoTime();
             long selectDeadLineNanos = currentTimeNanos + delayNanos(currentTimeNanos);
 
-            for (;;) {
+            for (; ; ) {
                 //超时时间 补足成整数
                 long timeoutMillis = (selectDeadLineNanos - currentTimeNanos + 500000L) / 1000000L;
                 if (timeoutMillis <= 0) {
@@ -920,15 +916,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     break;
                 }
 
-                //run中说明的问题场景应该是 当存在任务的情况下 wakenup刚好在外面被设置成true 这样还是会阻塞一下线程 执行select 为了避免这种情况 多进行一次wakeup()
-                //这样 如果在下一次round 中如果 进入到这里的中途wakeup还是 false 没有任何影响 调用selectNow 结束
-                //如果是true 就不会被select()阻塞
-
-                //没有任务情况下 或者 唤醒标识没有被修改成功 就开始选择 直到超时 或者选择到了结果
+                // 阻塞直到下个定时任务执行的时间 但是当用户插入任务时 可以手动唤醒
                 int selectedKeys = selector.select(timeoutMillis);
-                selectCnt ++;
+                selectCnt++;
 
-                //获取到了 准备事件
                 if (selectedKeys != 0 || oldWakenUp || wakenUp.get() || hasTasks() || hasScheduledTasks()) {
                     // - Selected something,
                     // - waken up by user, or
@@ -986,7 +977,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * 创建新的selector 并将旧数据转移过去
-     * @param selectCnt   传入的是 连续调用select 的 次数
+     *
+     * @param selectCnt 传入的是 连续调用select 的 次数
      * @return
      * @throws IOException
      */

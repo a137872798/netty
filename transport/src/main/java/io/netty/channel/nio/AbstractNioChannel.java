@@ -46,7 +46,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * Abstract base class for {@link Channel} implementations which use a Selector based approach.
  *
- *
  */
 public abstract class AbstractNioChannel extends AbstractChannel {
 
@@ -69,7 +68,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      */
     volatile SelectionKey selectionKey;
     /**
-     * 是否正在读取
+     * 当前正在监听读事件
      */
     boolean readPending;
     /**
@@ -105,14 +104,12 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
-        //默认 parent为null
         super(parent);
         //从下层传来的 JDK ServerSocketChannel or SocketChannel
         this.ch = ch;
         //初始化感兴趣的 事件 如果是 ServiceNioChannel 是 连接事件  客户端应该是 读取事件
         this.readInterestOp = readInterestOp;
         try {
-            //设置 读写都不阻塞 还不太明白 底层开启额外线程写入???
             ch.configureBlocking(false);
         } catch (IOException e) {
             try {
@@ -194,14 +191,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * Set read pending to {@code false}.
      */
     protected final void clearReadPending() {
-        //当已经完成注册的情况 一般也就是处在这里
+        // 如果已经注册到事件循环上 那么就设置了selectionKey 这里要进行清理
         if (isRegistered()) {
             EventLoop eventLoop = eventLoop();
             if (eventLoop.inEventLoop()) {
                 //直接清除 对应的 autoRead 时 注册的 事件
                 clearReadPending0();
             } else {
-                //clearReadPendingRunnable 就是封装了clearReadPending0
+                // 这些任务都必须交由事件循环线程执行
                 eventLoop.execute(clearReadPendingRunnable);
             }
         } else {
@@ -289,14 +286,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             }
 
             try {
-                //已经开始连接
+                //已经开始连接  防重入
                 if (connectPromise != null) {
                     // Already a connect in process.
                     throw new ConnectionPendingException();
                 }
 
                 boolean wasActive = isActive();
-                //如果已经完成连接 激活active 事件 这时 就不需要connect了 而是修改为 read 准备接受server 的数据
+                // 事件循环线程尝试进行连接
                 if (doConnect(remoteAddress, localAddress)) {
                     fulfillConnectPromise(promise, wasActive);
                 } else {
@@ -327,7 +324,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                     promise.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
-                            //如果任务被关闭
+                            // 代表监听到用户取消了连接
                             if (future.isCancelled()) {
                                 //关闭这个定时任务 防止 它 到时抛出异常
                                 if (connectTimeoutFuture != null) {
@@ -349,7 +346,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
 
         /**
-         * 设置 connect promise 对象
+         * 代表客户端成功连接到了服务器上
          * @param promise
          * @param wasActive  一般是 false
          */
@@ -391,7 +388,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
 
         /**
-         * 当select 轮询到 连接事件时 转发到这里进行处理
+         * 当select 轮询到 连接事件时 转发到这里进行处理 因为是非阻塞连接所以首次连接失败后就在selectionKey上注册并等待合适的时机
          */
         @Override
         public final void finishConnect() {
@@ -427,14 +424,15 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             // Flush immediately only when there's no pending flush.
             // If there's a pending flush operation, event loop will call forceFlush() later,
             // and thus there's no need to call it now.
-            // 如果不是正在 等待 flush 的状态 就开始 flush
-            // JDK channel 本身是不需要绑定写事件的 如果 绑定了 就是 isFlushPending 为true 那么就代表暂时不能写入 那么flush 就不会调用了
-            // forceFlush()
+            // 此时网络缓存区满了 注册了write事件 并监听是否准备就绪
             if (!isFlushPending()) {
                 super.flush0();
             }
         }
 
+        /**
+         * 强制刷盘 不检查当前选择器是否注册了write
+         */
         @Override
         public final void forceFlush() {
             // directly call super.flush0() to force a flush now
@@ -471,16 +469,13 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
-                //这里为channel 注册 select 但是没有设置感兴趣事件 这里使用的是未包装的 select 就是每次select 之前不会清空key
-                //这个返回的selectionKey 代表 该channel 与 selector的 关联关系 可以通过它 为这个channel设置感兴趣设置 能够监听到不同事件
-                //同时attachment 绑定了自己 这样方便select 能够知道获取到 selectKey是哪个channel 的 并且可以直接对channel 进行操作
+                //注册的时候一开始不会指定事件
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
                 if (!selected) {
                     // Force the Selector to select now as the "canceled" SelectionKey may still be
                     // cached and not removed because no Select.select(..) operation was called yet.
-                    //这里会立即清空之前获取的 准备事件 可能在 register时 已经有准备好的事件会出bug  还不太懂
                     eventLoop().selectNow();
                     selected = true;
                 } else {
@@ -498,7 +493,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     }
 
     /**
-     * 当channel active 也就是绑定 or 连接完成后开始读取
+     * 在selectionKey上设置相关事件
      * @throws Exception
      */
     @Override

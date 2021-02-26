@@ -57,16 +57,12 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
      */
     @Override
     protected void doBeginRead() throws Exception {
-        //如果停止输入的 情况 就不注册了
         if (inputShutdown) {
             return;
         }
         super.doBeginRead();
     }
 
-    /**
-     * 这个对象本身没有 regist方法 当 给 channel 设置 eventloop 时 就是使用regist方法
-     */
     private final class NioMessageUnsafe extends AbstractNioUnsafe {
 
         /**
@@ -82,7 +78,6 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             assert eventLoop().inEventLoop();
             final ChannelConfig config = config();
             final ChannelPipeline pipeline = pipeline();
-            //获取 可回收的buf 分配对象  这个东西还不懂
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
             //重置 config 并重置 可读取总大小和当前大小
             allocHandle.reset(config);
@@ -98,15 +93,14 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                         if (localRead == 0) {
                             break;
                         }
-                        //在ServerSocketChannel 情况下没有出现负数
+
+                        // 对于NioServerSocketChannel来说 不会返回负数
                         if (localRead < 0) {
                             closed = true;
                             break;
                         }
 
-                        //增加读取的数量 也就是增加totalMessage
                         allocHandle.incMessagesRead(localRead);
-                        //继续读取的情况 针对serverSocketChannel 只会读取一次
                     } while (allocHandle.continueReading());
                 } catch (Throwable t) {
                     exception = t;
@@ -132,7 +126,6 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                     pipeline.fireExceptionCaught(exception);
                 }
 
-                //需要关闭就 关闭
                 if (closed) {
                     inputShutdown = true;
                     if (isOpen()) {
@@ -146,6 +139,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 // * The user called Channel.read() or ChannelHandlerContext.read() in channelReadComplete(...) method
                 //
                 // See https://github.com/netty/netty/issues/2254
+                // 如果当前不是正在等待读取数据 且没有开启自动读取 就移除读事件
                 if (!readPending && !config.isAutoRead()) {
                     removeReadOp();
                 }
@@ -154,9 +148,6 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
     }
 
     /**
-     * 对应 ServerSocketChannel 的 flush 操作 一般读写都是通过 SocketChannel 来 写数据的 这个 应该跟 flush 关系不大吧
-     *
-     * 这个好像不是 NioServerSocketChannel 用的 因为 doWriteMessage NioServerSocketChannel 实现是 UNSUPPORTOPERATION
      * @param in
      * @throws Exception
      */

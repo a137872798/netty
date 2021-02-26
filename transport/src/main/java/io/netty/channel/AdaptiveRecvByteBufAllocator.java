@@ -40,6 +40,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     private static final int INDEX_INCREMENT = 4;
     private static final int INDEX_DECREMENT = 1;
 
+    /**
+     * 内部包含一组size
+     */
     private static final int[] SIZE_TABLE;
 
     static {
@@ -88,13 +91,25 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
         }
     }
 
+    /**
+     * 该对象用于判断能否继续读取数据
+     */
     private final class HandleImpl extends MaxMessageHandle {
         private final int minIndex;
         private final int maxIndex;
         private int index;
+        /**
+         * 期望以多少size的buffer去读取数据
+         */
         private int nextReceiveBufferSize;
         private boolean decreaseNow;
 
+        /**
+         *
+         * @param minIndex  自动调节的下限
+         * @param maxIndex  自动调节的上限
+         * @param initial  一开始期望分配的buffer大小
+         */
         public HandleImpl(int minIndex, int maxIndex, int initial) {
             this.minIndex = minIndex;
             this.maxIndex = maxIndex;
@@ -109,6 +124,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             // This helps adjust more quickly when large amounts of data is pending and can avoid going back to
             // the selector to check for more data. Going back to the selector can add significant latency for large
             // data transfers.
+            // 本次读取的数据量刚好满足期望值
             if (bytes == attemptedBytesRead()) {
                 record(bytes);
             }
@@ -121,10 +137,11 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
         }
 
         /**
-         * 记录本次读取的数据
+         * 当本次读取到的数据与预期一致时触发
          * @param actualReadBytes
          */
         private void record(int actualReadBytes) {
+            // 尝试使用更小的buffer
             if (actualReadBytes <= SIZE_TABLE[max(0, index - INDEX_DECREMENT - 1)]) {
                 if (decreaseNow) {
                     index = max(index - INDEX_DECREMENT, minIndex);
@@ -133,6 +150,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
                 } else {
                     decreaseNow = true;
                 }
+                // 尝试使用更大的buffer
             } else if (actualReadBytes >= nextReceiveBufferSize) {
                 index = min(index + INDEX_INCREMENT, maxIndex);
                 nextReceiveBufferSize = SIZE_TABLE[index];
@@ -140,6 +158,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             }
         }
 
+        /**
+         * 当本次准备好的所有数据都读取完时 判断是否需要调节buffer的大小
+         */
         @Override
         public void readComplete() {
             record(totalBytesRead());

@@ -22,8 +22,13 @@ import io.netty.util.UncheckedBooleanSupplier;
 /**
  * Default implementation of {@link MaxMessagesRecvByteBufAllocator} which respects {@link ChannelConfig#isAutoRead()}
  * and also prevents overflow.
+ * 该分配器用于控制channel每次读取的数据大小
  */
 public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessagesRecvByteBufAllocator {
+
+    /**
+     * 去往每次读取多少消息
+     */
     private volatile int maxMessagesPerRead;
     private volatile boolean respectMaybeMoreData = true;
 
@@ -114,11 +119,21 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
             return alloc.ioBuffer(guess());
         }
 
+        /**
+         * 此时总计读取了多少数据
+         * @param amt
+         */
         @Override
         public final void incMessagesRead(int amt) {
             totalMessages += amt;
         }
 
+        /**
+         * 更新最近一次读取的数据量
+         * @param bytes The number of bytes from the previous read operation. This may be negative if an read error
+         * occurs. If a negative value is seen it is expected to be return on the next call to
+         * {@link #lastBytesRead()}. A negative value will signal a termination condition enforced externally
+         */
         @Override
         public void lastBytesRead(int bytes) {
             lastBytesRead = bytes;
@@ -149,10 +164,8 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
         @Override
         public boolean continueReading(UncheckedBooleanSupplier maybeMoreDataSupplier) {
             return config.isAutoRead() &&
-                    //maybeMoreDataSupplier.get() 这行是主要判断是否还有数据可读
                    (!respectMaybeMoreData || maybeMoreDataSupplier.get()) &&
                    totalMessages < maxMessagePerRead &&
-                    //针对serverSocketChannel 并不会设置这个东西 所以 就是false
                    totalBytesRead > 0;
         }
 
@@ -165,6 +178,10 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
             return attemptedBytesRead;
         }
 
+        /**
+         * 设置本次预期读取的大小
+         * @param bytes How many bytes the read operation will (or did) attempt to read.
+         */
         @Override
         public void attemptedBytesRead(int bytes) {
             attemptedBytesRead = bytes;

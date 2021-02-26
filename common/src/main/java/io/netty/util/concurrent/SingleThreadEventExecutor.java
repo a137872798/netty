@@ -66,6 +66,9 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     private static final int ST_SHUTDOWN = 4;
     private static final int ST_TERMINATED = 5;
 
+    /**
+     * 因为默认使用的queue是阻塞队列 所以只要往队列中插入一个任务就可以唤醒线程
+     */
     private static final Runnable WAKEUP_TASK = new Runnable() {
         @Override
         public void run() {
@@ -563,7 +566,6 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     }
 
     /**
-     * 当此时已经处于优雅关闭中时 可以通过设置特殊的任务来重新激活
      * @param inEventLoop
      */
     protected void wakeup(boolean inEventLoop) {
@@ -642,7 +644,6 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
     /**
      * @param quietPeriod the quiet period as described in the documentation
-     *                    默认是2
      * @param timeout     the maximum amount of time to wait until the executor is {@linkplain #shutdown()}
      *                    regardless if a task was submitted during the quiet period
      *                    默认是15

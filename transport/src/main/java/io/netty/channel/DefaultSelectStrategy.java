@@ -19,7 +19,6 @@ import io.netty.util.IntSupplier;
 
 /**
  * Default select strategy.
- * 默认的选择策略 通过这个决定server 是 继续select 还是处理 任务队列中的任务
  */
 final class DefaultSelectStrategy implements SelectStrategy {
     static final SelectStrategy INSTANCE = new DefaultSelectStrategy();

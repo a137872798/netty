@@ -57,7 +57,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ChannelInitializer.class);
     // We use a Set as a ChannelInitializer is usually shared between all Channels in a Bootstrap /
     // ServerBootstrap. This way we can reduce the memory usage compared to use Attributes.
-    // 首先在事件循环线程中访问  所以不需要加锁 避免递归插入
+    // 因为该handler是共享的 所以这个map实际上会存储多个context对应的handler
     private final Set<ChannelHandlerContext> initMap = Collections.newSetFromMap(
             new ConcurrentHashMap<ChannelHandlerContext, Boolean>());
 
@@ -106,7 +106,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
 
     /**
      * {@inheritDoc} If override this method ensure you call super!
-     * 当追加了新的handler后 尝试装配channel   跟register只能触发一次initChannel(通过set避免重复操作)
+     * 当channel注册到eventloop后 触发
      */
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {

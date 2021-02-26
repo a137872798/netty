@@ -39,7 +39,6 @@ import static io.netty.channel.internal.ChannelUtils.WRITE_STATUS_SNDBUF_FULL;
 
 /**
  * {@link AbstractNioChannel} base class for {@link Channel}s that operate on bytes.
- * channel 端的 channel
  */
 public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     private static final ChannelMetadata METADATA = new ChannelMetadata(false, 16);
@@ -47,6 +46,9 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             " (expected: " + StringUtil.simpleClassName(ByteBuf.class) + ", " +
             StringUtil.simpleClassName(FileRegion.class) + ')';
 
+    /**
+     * 当发现channel写缓冲区有空间 就可以将之前未flush的数据刷盘
+     */
     private final Runnable flushTask = new Runnable() {
         @Override
         public void run() {
@@ -55,6 +57,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             ((AbstractNioUnsafe) unsafe()).flush0();
         }
     };
+
+    /**
+     * 对端channel已经申请断开连接,也就是不会再发送数据了 也就不需要继续读取数据
+     */
     private boolean inputClosedSeenErrorOnRead;
 
     /**
@@ -102,15 +108,14 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected class NioByteUnsafe extends AbstractNioUnsafe {
 
         /**
-         * 出现异常情况 关闭读事件
+         * 感知到对端的channel 已经被关闭了
          * @param pipeline
          */
         private void closeOnRead(ChannelPipeline pipeline) {
-            //判断JDK channel 是否已经被关闭
+            // 本channel还未关闭
             if (!isInputShutdown0()) {
-                //如果允许半关闭 好像是说 客户端关闭了 是否要关闭服务端对应的 channel 对象
+                // 允许半开状态 不再进行数据读取 但是还可以往外写数据 同时触发一个用户事件
                 if (isAllowHalfClosure(config())) {
-                    //这个是针对JDKchannel 的 方法 暂时看不懂  作用是 暂时关闭读取而不关闭channel 能恢复吗???在什么时机回复???
                     //Shutdown the connection for reading without closing the channel
                     shutdownInput();
                     pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
@@ -120,7 +125,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 }
                 //关闭的情况触发用户自定义事件
             } else {
-                //已经关闭的 情况 设置标识  下次就会取消 READ 事件
+                // 标记没必要继续读取数据了
                 inputClosedSeenErrorOnRead = true;
                 pipeline.fireUserEventTriggered(ChannelInputShutdownReadComplete.INSTANCE);
             }
@@ -158,7 +163,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         }
 
         /**
-         * 客户端读取数据
+         * 尝试从对端读取数据
          */
         @Override
         public final void read() {
@@ -172,11 +177,13 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             final ChannelPipeline pipeline = pipeline();
             final ByteBufAllocator allocator = config.getAllocator();
             final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
+            // 每次开始一次新的read 就要清理totalReadBytes
             allocHandle.reset(config);
 
             ByteBuf byteBuf = null;
             boolean close = false;
             try {
+                // 这里可以对读取的数据量进行控制
                 do {
                     byteBuf = allocHandle.allocate(allocator);
                     //内层：将数据读取到bytebuf中  外层：更新 读取的 下标
@@ -187,7 +194,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         // 释放对象
                         byteBuf.release();
                         byteBuf = null;
-                        //这里代表 对端被关闭了 所以 OP_READ 事件返回的 是 -1
+                        // 当channel被关闭时返回-1 详见AbstractByteBuf源码
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // There is nothing left to read as we received an EOF.
@@ -200,14 +207,12 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     //增加读取的消息数  一次只增加1
                     allocHandle.incMessagesRead(1);
                     readPending = false;
-                    //触发 读取 所以每次 触发 ChannelRead的 一定是 bytebuf对象
+                    // 每当读取到一部分数据时 触发一次read
                     pipeline.fireChannelRead(byteBuf);
-                    //调用链触发完后 置空(在 tail 节点会进行释放)
                     byteBuf = null;
                 } while (allocHandle.continueReading());
 
-                //触发2个 事件
-                //会记录本次 读取的数据
+                // 记录本次实际上读取的数量 下次尽量争取一次分配足够大的buf
                 allocHandle.readComplete();
                 //触发handler
                 pipeline.fireChannelReadComplete();
@@ -254,12 +259,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // Directly return here so incompleteWrite(...) is not called.
             return 0;
         }
-        //代表 还有 flushed 的 entry
         return doWriteInternal(in, in.current());
     }
 
     /**
-     * 处理 剩下的 flushed entry
      * @param in
      * @param msg
      * @return
@@ -268,16 +271,15 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     private int doWriteInternal(ChannelOutboundBuffer in, Object msg) throws Exception {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
-            //这种情况应该不会出现吧
+            // 当前buf无数据 并且之后的应该也没有数据 就不需要写入了
             if (!buf.isReadable()) {
                 in.remove();
                 return 0;
             }
 
-            //将数据写入到 TCP 缓冲区  其实就是写入到 JDK channel
-            //应该是写入 另一端的 channel 就会准备好读事件 然后就能 从channel 中拉数据
+            // 将数据写入到io缓冲区
             final int localFlushedAmount = doWriteBytes(buf);
-            //代表确实写入了   下次就写入不进去了 就会到最下面
+            // 代表写入了数据
             if (localFlushedAmount > 0) {
                 in.progress(localFlushedAmount);
                 if (!buf.isReadable()) {
@@ -306,7 +308,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // Should not reach here.
             throw new Error();
         }
-        //代表 send Buf 被写满了 也就是 TCP 缓冲区被写满了
+        // 代表缓冲区已满 需要注册write事件
         return WRITE_STATUS_SNDBUF_FULL;
     }
 
@@ -317,6 +319,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             Object msg = in.current();
             if (msg == null) {
                 // Wrote all messages.
+                // 代表所有数据都已经写完 不需要注册write事件了
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;
@@ -346,7 +349,6 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             return newDirectBuffer(buf);
         }
 
-        //在rocketMq中有看到这个东西 不懂是啥
         if (msg instanceof FileRegion) {
             return msg;
         }
@@ -368,7 +370,6 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // use our write quantum. In this case we no longer want to set the write OP because the socket is still
             // writable (as far as we know). We will find out next time we attempt to write if the socket is writable
             // and set the write OP if necessary.
-            //清除 写事件监听 看来 这个会对性能有一定影响 不然不会这么急着去除
             clearOpWrite();
 
             // Schedule flush again later so other tasks can be picked up in the meantime

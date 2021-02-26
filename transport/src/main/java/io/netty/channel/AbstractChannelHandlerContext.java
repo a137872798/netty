@@ -53,7 +53,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     /**
      * {@link ChannelHandler#handlerAdded(ChannelHandlerContext)} is about to be called.
      *
-     * 该对象还未设置handler
+     * 该对象还未添加handler
      */
     private static final int ADD_PENDING = 1;
     /**
@@ -161,7 +161,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 触发下一个  register事件
+     * 触发下一个context的register事件
      * @return
      */
     @Override
@@ -172,23 +172,18 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 当触发 register事件时  这个含ctx 参数的调用方法相当于是一个定位
+     * 处理注册事件
      * @param next
      */
     static void invokeChannelRegistered(final AbstractChannelHandlerContext next) {
-        //获取上下文的 executor 也就是eventloop 对象
+        // 首先获取触发的context 对应的执行器
         EventExecutor executor = next.executor();
-        //本线程中直接执行 没有使用加入到 队列的方式 也就是这个事件的优先级是最高的
 
-        // 如果 本对象自身设置了 evntloop 比如DefaultEventExecutor 在handler 中没有创建新线程的情况下 是会走 第一个分支
-        // 然后传递到下个 节点会使用下个节点自身的 executor 对象 默认就是 nioeventloop
-        // 如果在 使用DefaultEventExecutor 的情况下 并且 还开启了 外部线程就是else 的分支 尝试从 任务队列中拉取任务并执行
-        // DefaultEventExecutor 对象相当于 舍弃selector 功能的 nioeventloop 对象
+        // 因为当前线程就是事件循环线程 直接执行
         if (executor.inEventLoop()) {
             next.invokeChannelRegistered();
         } else {
-            //如果不是在独占线程中也就是在外部线程 执行该任务 加入到任务队列  这个execute 有一个 addTask(task)
-            //只要该对象是 eventExecutor execute 就是将任务存入任务队列 而不是直接执行
+            // 使用外部(业务)线程执行
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -199,10 +194,10 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 这个是 针对该节点的 私有方法 也就是传递到下个节点
+     * 使用当前context关联的handler 处理注册事件
      */
     private void invokeChannelRegistered() {
-        //如果 该ctx 处于Add_Complete 状态
+        // 代表handler已经设置完毕
         if (invokeHandler()) {
             try {
                 ((ChannelInboundHandler) handler()).channelRegistered(this);
@@ -210,7 +205,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
                 notifyHandlerException(t);
             }
         } else {
-            //该channel 不可用 往下传递 其实就是还未 register 所以传递到 tail 节点
+            // handler还未设置 传播到下游
             fireChannelRegistered();
         }
     }
@@ -414,7 +409,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     static void invokeChannelRead(final AbstractChannelHandlerContext next, Object msg) {
-        //如果 需要touch 会 返回 touch 后的对象 应该就是 多做了一个记录操作
+        // 每当读取到一个消息时 会尝试记录
         final Object m = next.pipeline.touch(ObjectUtil.checkNotNull(msg, "msg"), next);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
@@ -454,7 +449,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         if (executor.inEventLoop()) {
             next.invokeChannelReadComplete();
         } else {
-            //为什么要特地把这个 任务 抽出来???
             Runnable task = next.invokeChannelReadCompleteTask;
             if (task == null) {
                 next.invokeChannelReadCompleteTask = task = new Runnable() {
@@ -493,7 +487,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         if (executor.inEventLoop()) {
             next.invokeChannelWritabilityChanged();
         } else {
-            //为什么要抽出这个对象
             Runnable task = next.invokeChannelWritableStateChangedTask;
             if (task == null) {
                 next.invokeChannelWritableStateChangedTask = task = new Runnable() {
@@ -562,7 +555,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         if (localAddress == null) {
             throw new NullPointerException("localAddress");
         }
-        //代表该 promise 不合法
+        // 检测传入的promise是否合法
         if (isNotValidPromise(promise, false)) {
             // cancelled
             return promise;
@@ -596,7 +589,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
-    //剩下的也基本是一个套路 也是传递链
 
     @Override
     public ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
@@ -643,7 +635,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 在ctx 上 如果不支持disconnect 就会转换成close
      * @param promise
      * @return
      */
@@ -913,7 +904,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
                 next.invokeWrite(m, promise);
             }
         } else {
-            //抽象出 一个写的 任务 并执行  抽象出来是因为这个对象的创建成本比较高吧 所以要配合 recycle对象
             final AbstractWriteTask task;
             if (flush) {
                 task = WriteAndFlushTask.newInstance(next, m, promise);
@@ -1075,7 +1065,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 设置该节点已移除标识
+     * 设置handler已经被移除
      */
     final void setRemoved() {
         handlerState = REMOVE_COMPLETE;
@@ -1090,7 +1080,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
             // Ensure we never update when the handlerState is REMOVE_COMPLETE already.
             // oldState is usually ADD_PENDING but can also be REMOVE_COMPLETE when an EventExecutor is used that is not
             // exposing ordering guarantees.
-            // 如果抢先被 remove 了 也返回  一般都是在 eventloop 中执行 是不会出这个问题的
             if (oldState == REMOVE_COMPLETE || HANDLER_STATE_UPDATER.compareAndSet(this, oldState, ADD_COMPLETE)) {
                 return;
             }
@@ -1098,7 +1087,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 修改当前状态 就是context 从刚创建变成  等待中 也就是等待 channel 设置eventloop 的 过程
+     * 等待加入到事件循环
      */
     final void setAddPending() {
         boolean updated = HANDLER_STATE_UPDATER.compareAndSet(this, INIT, ADD_PENDING);
@@ -1166,7 +1155,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     }
 
     /**
-     * 抽象出来的写任务
+     * 抽象出来的写任务 因为这里的逻辑要多一些 主要就是增加一个统计功能(计算当前有多少待写入的数据)
      */
     abstract static class AbstractWriteTask implements Runnable {
 
@@ -1177,9 +1166,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         private static final int WRITE_TASK_OVERHEAD =
                 SystemPropertyUtil.getInt("io.netty.transport.writeTaskSizeOverhead", 48);
 
-        /**
-         * 回收对象 应该是可以复用什么的
-         */
         private final Recycler.Handle<AbstractWriteTask> handle;
         /**
          * 关联的上下文对象
@@ -1189,6 +1175,9 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
          * 消息实体
          */
         private Object msg;
+        /**
+         * 当写入操作完成时 设置结果  外部用户通过监听该对象判断是否完成任务
+         */
         private ChannelPromise promise;
         private int size;
 
@@ -1275,9 +1264,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
-    /**
-     * 写任务的抽象
-     */
     static final class WriteTask extends AbstractWriteTask implements SingleThreadEventLoop.NonWakeupRunnable {
 
         private static final Recycler<WriteTask> RECYCLER = new Recycler<WriteTask>() {
@@ -1309,9 +1295,6 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
         }
     }
 
-    /**
-     * 写并刷盘的抽象
-     */
     static final class WriteAndFlushTask extends AbstractWriteTask {
 
         private static final Recycler<WriteAndFlushTask> RECYCLER = new Recycler<WriteAndFlushTask>() {
